@@ -1,0 +1,8 @@
+{
+  "name": "Untitled Protocol",
+  "events": [
+    { "type": "Countdown", "time": 0, "param": "3,2.0" },
+    { "type": "PlaySound", "time": 3, "param": "chime" },
+    { "type": "PlaySound", "time": 18, "param": "beep" }
+  ]
+}

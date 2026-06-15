@@ -1,0 +1,42 @@
+# Build output
+build/
+build_*/
+qt_version/build/
+qt_version/build_*/
+analyzer_qt/build/
+analyzer_qt/build_*/
+
+# macOS metadata
+.DS_Store
+._*
+
+# Python
+__pycache__/
+*.pyc
+
+# Installers / downloads (not source)
+*.exe
+*.crdownload
+*.msi
+*.dmg
+*.zip
+*.run
+
+# Vendored GLFW has its own git repo; track as plain files, not a submodule
+third_party/glfw/.git/
+
+# Session data — recorded clinical data stays out of version control
+recordings/
+
+# IDE / tooling
+.vscode/
+.idea/
+CMakeUserPresets.json
+.claude/
+
+# Generated Jetson bundle (reproducible via git archive)
+JetsonTrackingSoftware/
+JetsonTrackingSoftware.tar.gz
+
+# Stray logs
+*.log

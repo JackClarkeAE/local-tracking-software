@@ -1,0 +1,144 @@
+name: Build Local Tracking Software (Qt)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+# Camera SDKs (ZED, Azure Kinect) are not installed on CI runners, so these
+# binaries are playback-only. Capture-enabled builds are produced on a machine
+# with the SDKs installed — the build auto-detects them (see qt_version/README.md).
+
+jobs:
+  windows:
+    name: Windows (MSVC)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: win64_msvc2022_64
+          modules: 'qtmultimedia'
+          cache: true
+
+      - name: Install ONNX Runtime
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-win-x64-1.20.1.zip -OutFile ort.zip
+          Expand-Archive ort.zip -DestinationPath $env:RUNNER_TEMP
+          "ONNXRUNTIME_ROOT=$env:RUNNER_TEMP/onnxruntime-win-x64-1.20.1" >> $env:GITHUB_ENV
+
+      - name: Configure
+        run: cmake -S qt_version -B qt_version/build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build
+        run: cmake --build qt_version/build --config Release
+
+      - name: Test
+        run: ctest --test-dir qt_version/build -C Release --output-on-failure
+
+      - name: Package (NSIS installer + ZIP)
+        run: cpack --config qt_version/build/CPackConfig.cmake -C Release -B qt_version/dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalTrackingSoftware-windows
+          path: |
+            qt_version/dist/*.exe
+            qt_version/dist/*.zip
+
+  linux:
+    name: Linux (Ubuntu 22.04)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgl1-mesa-dev libglu1-mesa-dev \
+            libxkbcommon-dev libxcb-cursor0 libfuse2
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          modules: 'qtmultimedia'
+          cache: true
+
+      - name: Install ONNX Runtime
+        run: |
+          wget -q https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-linux-x64-1.20.1.tgz
+          tar xf onnxruntime-linux-x64-1.20.1.tgz -C $RUNNER_TEMP
+          echo "ONNXRUNTIME_ROOT=$RUNNER_TEMP/onnxruntime-linux-x64-1.20.1" >> $GITHUB_ENV
+
+      - name: Configure
+        run: cmake -S qt_version -B qt_version/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build qt_version/build
+
+      - name: Test
+        run: ctest --test-dir qt_version/build --output-on-failure
+        env:
+          QT_QPA_PLATFORM: offscreen
+
+      - name: Package (AppImage)
+        # AppImage bundles Qt (incl. the ffmpeg media backend) so the result
+        # runs on any distro without installing Qt — the .deb/.tar.gz from
+        # cpack link Qt 6.8 which distro repos don't provide.
+        run: |
+          cmake --install qt_version/build --prefix AppDir/usr
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy*.AppImage
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir \
+            -d packaging/localtracking.desktop \
+            -i packaging/localtracking.png \
+            --plugin qt --output appimage
+          mkdir -p qt_version/dist
+          mv Local_Tracking_Software*.AppImage qt_version/dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalTrackingSoftware-linux
+          path: qt_version/dist/*.AppImage
+
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          modules: 'qtmultimedia'
+          cache: true
+
+      - name: Install ninja + ONNX Runtime
+        run: brew install ninja onnxruntime
+
+      - name: Configure
+        run: cmake -S qt_version -B qt_version/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build qt_version/build
+
+      - name: Test
+        run: ctest --test-dir qt_version/build --output-on-failure
+        env:
+          QT_QPA_PLATFORM: offscreen
+
+      - name: Package (DMG)
+        run: cpack --config qt_version/build/CPackConfig.cmake -B qt_version/dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalTrackingSoftware-macos
+          path: qt_version/dist/*.dmg

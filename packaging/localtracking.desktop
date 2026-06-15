@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Local Tracking Software
+Comment=Clinical body-tracking capture suite
+Exec=LocalTrackingSoftware_Qt
+Icon=localtracking
+Categories=Science;MedicalSoftware;
+Terminal=false

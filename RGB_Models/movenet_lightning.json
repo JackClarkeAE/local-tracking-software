@@ -1,0 +1,25 @@
+{
+  "name": "MoveNet Lightning (17 keypoints)",
+  "decoder": "keypoints_yxc",
+  "normalize": "none",
+  "min_confidence": 0.25,
+  "keypoints": [
+    "NOSE",
+    "EYE_LEFT",
+    "EYE_RIGHT",
+    "EAR_LEFT",
+    "EAR_RIGHT",
+    "SHOULDER_LEFT",
+    "SHOULDER_RIGHT",
+    "ELBOW_LEFT",
+    "ELBOW_RIGHT",
+    "WRIST_LEFT",
+    "WRIST_RIGHT",
+    "HIP_LEFT",
+    "HIP_RIGHT",
+    "KNEE_LEFT",
+    "KNEE_RIGHT",
+    "ANKLE_LEFT",
+    "ANKLE_RIGHT"
+  ]
+}

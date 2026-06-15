@@ -1,0 +1,48 @@
+{
+  "_README": [
+    "Sidecar manifest for a drop-in RGB tracking model.",
+    "To add a model: put mymodel.onnx in this folder, copy this file to",
+    "mymodel.json (SAME base name as the .onnx), and fill in the fields.",
+    "The app reads the input tensor shape, layout (NHWC/NCHW) and dtype",
+    "from the .onnx file itself — this manifest supplies only what the",
+    "file format cannot express. Find these values in the model's card",
+    "or repository documentation.",
+    "Lines starting with _ are comments and are ignored."
+  ],
+
+  "name": "My Pose Model",
+  "_name": "Display name shown in the camera Model dropdown.",
+
+  "decoder": "keypoints_yxc",
+  "_decoder": [
+    "How to interpret the model's output tensor:",
+    "  keypoints_yxc — rows of (y, x, confidence), coordinates 0..1 (MoveNet)",
+    "  keypoints_xyc — rows of (x, y, confidence), coordinates 0..1"
+  ],
+
+  "normalize": "none",
+  "_normalize": [
+    "Input pixel normalization:",
+    "  none     — raw 0..255 values (MoveNet)",
+    "  0_1      — divide by 255",
+    "  neg1_1   — scale to -1..1",
+    "  imagenet — 0..1 then ImageNet mean/std per channel"
+  ],
+
+  "min_confidence": 0.25,
+  "_min_confidence": "Keypoints scoring below this are dropped.",
+
+  "keypoints": [
+    "NOSE", "EYE_LEFT", "EYE_RIGHT", "EAR_LEFT", "EAR_RIGHT",
+    "SHOULDER_LEFT", "SHOULDER_RIGHT", "ELBOW_LEFT", "ELBOW_RIGHT",
+    "WRIST_LEFT", "WRIST_RIGHT", "HIP_LEFT", "HIP_RIGHT",
+    "KNEE_LEFT", "KNEE_RIGHT", "ANKLE_LEFT", "ANKLE_RIGHT"
+  ],
+  "_keypoints": [
+    "The model's keypoints IN ITS OUTPUT ORDER, using this app's canonical",
+    "joint names (see the Info tab for the full list of 32). The list above",
+    "is the standard COCO-17 order used by most pose models. Use \"IGNORE\"",
+    "for outputs you don't want mapped. PELVIS, NECK, SPINE and HEAD are",
+    "derived automatically from hips/shoulders/ears when missing."
+  ]
+}

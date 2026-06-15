@@ -1,0 +1,21 @@
+{
+  "name": "Control Gathering 6 Minute Protocol",
+  "events": [
+    { "type": "StartCamera", "time": 0, "param": "" },
+    { "type": "Countdown", "time": 10, "param": "5,3" },
+    { "type": "StartRecording", "time": 15, "param": "" },
+    { "type": "AddFlag", "time": 75, "param": "Speed Increased" },
+    { "type": "DisplayText", "time": 75, "param": "Speed Increased|top|2|white" },
+    { "type": "AddFlag", "time": 135, "param": "Speed Increased" },
+    { "type": "DisplayText", "time": 135, "param": "Speed Increased|top|2|white" },
+    { "type": "HideAvatar", "time": 195, "param": "" },
+    { "type": "AddFlag", "time": 195, "param": "Biofeedback View Disabled" },
+    { "type": "DisplayText", "time": 195, "param": "Biofeedback View Disabled|top|2|white" },
+    { "type": "AddFlag", "time": 255, "param": "Speed Decreased" },
+    { "type": "DisplayText", "time": 255, "param": "Speed Decreased|top|2|white" },
+    { "type": "AddFlag", "time": 315, "param": "Speed Decreased" },
+    { "type": "DisplayText", "time": 315, "param": "Speed Decreased|top|2|white" },
+    { "type": "StopRecording", "time": 375, "param": "" },
+    { "type": "DisplayText", "time": 375, "param": "Protocol Finished|middle|2|green" }
+  ]
+}
