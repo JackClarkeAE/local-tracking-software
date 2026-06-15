@@ -1,8 +1,72 @@
 # Local Tracking Software
 
 Clinical body-tracking suite for movement research using Azure Kinect
-and ZED 2i cameras. Records skeletal joint data during protocol-driven
-sessions with optional real-time biofeedback.
+and ZED 2i depth cameras, or any standard RGB webcam via drop-in pose models.
+Records skeletal joint data during protocol-driven sessions with optional
+real-time biofeedback.
+
+> **Licensing:** free for personal, non-commercial, and research use under
+> [CC BY-NC-SA 4.0](LICENSE). Commercial use is assessed case-by-case — see
+> [License](#license).
+
+## Downloads
+
+Prebuilt installers are published on the
+[Releases page](https://github.com/JackClarkeAE/local-tracking-software/releases/latest).
+
+| Download | Platform | Type |
+|---|---|---|
+| `LocalTrackingSoftware-*-win64.exe` | Windows 10/11 (x64) | Installer (recommended) |
+| `LocalTrackingSoftware-*-win64.zip` | Windows 10/11 (x64) | Portable (unzip and run) |
+| `LocalTrackingSoftware-*-Darwin.dmg` | macOS (Apple Silicon) | Disk image |
+| `Local_Tracking_Software-*.AppImage` | Linux (x86-64) | Portable, runs on any distro |
+
+**Every download works out of the box for RGB-camera tracking, playback,
+protocols and analysis — no extra install needed** — and ships with a bundled
+pose model (see [Camera support](#camera-support--requirements)). Azure Kinect
+and ZED capture have additional requirements, detailed below.
+
+## Camera support & requirements
+
+| Mode | Works in the public downloads? | Requirements |
+|---|---|---|
+| **RGB camera** (webcam / USB) | Yes, out of the box | Any USB/web camera. Live body tracking via the bundled MoveNet model. |
+| **Azure Kinect** | Needs a capture-enabled build | A build compiled with the Azure Kinect SDKs **+** the Azure Kinect Sensor SDK and Body Tracking SDK installed on the machine **+** a Kinect device. Body tracking runs via DirectML (most GPUs, or CPU). |
+| **ZED 2i** | Needs a capture-enabled build | A build compiled with the ZED SDK **+** the ZED SDK and CUDA installed **+** an NVIDIA GPU **+** a ZED camera. |
+
+The public release binaries are built on CI, which has no camera SDKs, so they
+run in **RGB + playback** mode. Azure Kinect and ZED support must be compiled in
+on a machine that has those SDKs (see [Building](#building-the-main-app-qt_version)) —
+the vendor runtimes (ZED SDK + CUDA + NVIDIA GPU; or the Azure Kinect SDK) are
+required on the end-user machine regardless, as neither vendor permits bundling
+them. When the SDKs are absent the app simply runs without that camera.
+
+### Bundled RGB model (included by default)
+
+The downloads include **Google MoveNet (SinglePose Lightning)** — a fast,
+single-person, 17-keypoint full-body pose model — so RGB tracking works
+immediately with no setup. Select **RGB Camera → Model: MoveNet Lightning** in
+the Live tab. The model is redistributed under the Apache License 2.0; see
+[`RGB_Models/MoveNet_NOTICE.txt`](RGB_Models/MoveNet_NOTICE.txt) for attribution.
+Additional models can be dropped into the `RGB_Models` folder as `.onnx` + `.json`
+pairs (template in [`RGB_Models/TEMPLATE.json.example`](RGB_Models/TEMPLATE.json.example)).
+
+## License
+
+Copyright © 2026 Jack Clarke. Released under the **Creative Commons
+Attribution-NonCommercial-ShareAlike 4.0 International** license
+([CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)):
+
+- **Free** for personal, non-commercial, and academic/research use, with
+  attribution and share-alike.
+- **Commercial use** (commercial products, paid services, commercial or
+  clinical deployment) is **not** covered by that license and is assessed on a
+  **case-by-case basis** — contact the copyright holder to arrange terms.
+
+Bundled third-party components keep their own licenses (Qt 6 — LGPL v3;
+ONNX Runtime — MIT; MoveNet — Apache 2.0). Full terms in [`LICENSE`](LICENSE).
+
+This is a research tool and is **not a certified medical device**.
 
 ## Repository layout
 

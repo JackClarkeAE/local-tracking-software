@@ -1,0 +1,57 @@
+Local Tracking Software
+Copyright (c) 2026 Jack Clarke
+
+================================================================================
+Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+(CC BY-NC-SA 4.0)
+================================================================================
+
+This work is licensed under the Creative Commons
+Attribution-NonCommercial-ShareAlike 4.0 International License.
+
+You are free to use, copy, share, and adapt this software for PERSONAL,
+NON-COMMERCIAL, and ACADEMIC / RESEARCH purposes, subject to these terms:
+
+  Attribution  — You must give appropriate credit ("Local Tracking Software,
+                 Jack Clarke"), provide a link to this license, and indicate
+                 if changes were made.
+
+  NonCommercial — You may not use the material for commercial purposes without
+                 a separate commercial licence (see below).
+
+  ShareAlike   — If you remix, transform, or build upon the material, you must
+                 distribute your contributions under this same license.
+
+No additional restrictions — you may not apply legal terms or technological
+measures that legally restrict others from doing anything this license permits.
+
+Full legal code:  https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
+Summary (deed):   https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+The full legal code at the URL above is the authoritative text of this license.
+
+--------------------------------------------------------------------------------
+COMMERCIAL USE
+--------------------------------------------------------------------------------
+Commercial use is NOT granted by the license above. Commercial use — including
+commercial products, paid services, and commercial or clinical deployment — is
+available and assessed on a case-by-case basis. Contact the copyright holder
+(Jack Clarke) to discuss commercial licensing terms.
+
+--------------------------------------------------------------------------------
+THIRD-PARTY COMPONENTS
+--------------------------------------------------------------------------------
+This project links and/or bundles third-party software under their own
+licenses, which are unaffected by the terms above:
+
+  - Qt 6              GNU LGPL v3 (dynamically linked)        https://www.qt.io
+  - ONNX Runtime      MIT License                             Microsoft
+  - MoveNet model     Apache License 2.0 (bundled)            Google
+                      see RGB_Models/MoveNet_NOTICE.txt
+
+--------------------------------------------------------------------------------
+DISCLAIMER
+--------------------------------------------------------------------------------
+This software is provided "as is", without warranty of any kind, express or
+implied. It is a research tool and is NOT a certified or approved medical
+device. It must not be used as the sole basis for clinical decisions.
