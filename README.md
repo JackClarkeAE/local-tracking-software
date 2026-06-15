@@ -1,8 +1,8 @@
 # Local Tracking Software
 
-Clinical body-tracking suite for movement-therapy research using Azure Kinect
+Clinical body-tracking suite for movement research using Azure Kinect
 and ZED 2i cameras. Records skeletal joint data during protocol-driven
-sessions with optional real-time biofeedback, and analyzes the recordings.
+sessions with optional real-time biofeedback.
 
 ## Repository layout
 
