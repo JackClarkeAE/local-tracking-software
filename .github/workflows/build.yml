@@ -3,8 +3,13 @@ name: Build Local Tracking Software (Qt)
 on:
   push:
     branches: [main, master]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
+
+# Release uploads (on v* tags) need write access to create the GitHub Release
+permissions:
+  contents: write
 
 # Camera SDKs (ZED, Azure Kinect) are not installed on CI runners, so these
 # binaries are playback-only. Capture-enabled builds are produced on a machine
@@ -13,7 +18,9 @@ on:
 jobs:
   windows:
     name: Windows (MSVC)
-    runs-on: windows-latest
+    # Pinned: windows-latest moved to an image where the "Visual Studio 17
+    # 2022" generator fails to locate VS at configure time.
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
 
@@ -48,6 +55,14 @@ jobs:
         with:
           name: LocalTrackingSoftware-windows
           path: |
+            qt_version/dist/*.exe
+            qt_version/dist/*.zip
+
+      - name: Attach to release (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
             qt_version/dist/*.exe
             qt_version/dist/*.zip
 
@@ -96,9 +111,13 @@ jobs:
           wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
           chmod +x linuxdeploy*.AppImage
+          # linuxdeploy resolves dependencies via LD_LIBRARY_PATH — point it at
+          # the ONNX Runtime libs so libonnxruntime.so.1 gets bundled
+          export LD_LIBRARY_PATH="$ONNXRUNTIME_ROOT/lib:$LD_LIBRARY_PATH"
           ./linuxdeploy-x86_64.AppImage --appdir AppDir \
             -d packaging/localtracking.desktop \
             -i packaging/localtracking.png \
+            --library "$ONNXRUNTIME_ROOT/lib/libonnxruntime.so.1.20.1" \
             --plugin qt --output appimage
           mkdir -p qt_version/dist
           mv Local_Tracking_Software*.AppImage qt_version/dist/
@@ -107,6 +126,12 @@ jobs:
         with:
           name: LocalTrackingSoftware-linux
           path: qt_version/dist/*.AppImage
+
+      - name: Attach to release (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: qt_version/dist/*.AppImage
 
   macos:
     name: macOS
@@ -142,3 +167,9 @@ jobs:
         with:
           name: LocalTrackingSoftware-macos
           path: qt_version/dist/*.dmg
+
+      - name: Attach to release (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: qt_version/dist/*.dmg
