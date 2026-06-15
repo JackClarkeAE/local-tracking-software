@@ -10,6 +10,11 @@
 
 #ifdef _WIN32
 #include <windows.h>
+// windows.h (mmsystem) defines a PlaySound -> PlaySoundW macro that collides
+// with ProtocolEventType::PlaySound. We don't use the Win32 audio API here.
+#ifdef PlaySound
+#undef PlaySound
+#endif
 #elif defined(__linux__)
 #include <dlfcn.h>
 #endif
