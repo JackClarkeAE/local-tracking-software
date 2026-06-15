@@ -1,0 +1,15 @@
+MoveNet (movenet_lightning.onnx)
+--------------------------------
+
+This bundled pose-estimation model is Google's MoveNet (SinglePose Lightning),
+distributed under the Apache License 2.0.
+
+  Model:    MoveNet SinglePose Lightning
+  Author:   Google
+  License:  Apache License, Version 2.0
+            https://www.apache.org/licenses/LICENSE-2.0
+  Source:   https://www.kaggle.com/models/google/movenet
+            ONNX export: https://huggingface.co/Xenova/movenet-singlepose-lightning
+
+The model file is redistributed unmodified. The Apache-2.0 license permits
+redistribution provided this notice and the license terms are retained.

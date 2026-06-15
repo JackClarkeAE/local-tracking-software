@@ -47,22 +47,12 @@ AppController::~AppController() {
 void AppController::init() {
     std::string iniPath = getConfigPath();
     if (!loadConfig(iniPath, config_)) {
-        // First launch — suggest defaults and ask the user to confirm via
-        // the Data Directory Setup dialog
-#ifdef _WIN32
-        // Portable-app convention: default paths next to exe
-        std::string exeDir = getExeDir();
-        config_.recordingsDir = exeDir + "/recordings";
-        config_.protocolsDir = exeDir + "/protocols";
-#else
-        // Installed app dir is not writable (.app bundle / /usr/bin) —
-        // default to the user's documents folder instead
-        const QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-        const QDir base(docs.isEmpty() ? QDir::homePath() : docs);
-        const std::string root = base.filePath("Local Tracking Software").toStdString();
+        // First launch — suggest writable defaults (next to the exe for a
+        // portable build, else the user's Documents) and confirm via the
+        // Data Directory Setup dialog
+        const std::string root = getDefaultDataRoot();
         config_.recordingsDir = root + "/recordings";
         config_.protocolsDir = root + "/protocols";
-#endif
         configSetupNeeded_ = true;
         configSetupMessage_ = "Welcome! Please select your data directories.";
     } else {

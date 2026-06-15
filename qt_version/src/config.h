@@ -12,6 +12,14 @@ struct AppConfig {
 // Default RGB_Models location for a given recordings directory
 std::string defaultRgbModelsDir(const std::string& recordingsDir);
 
+// Writable base directory for default recordings/protocols folders:
+// next to the exe for a portable build, else the user's Documents folder.
+std::string getDefaultDataRoot();
+
+// Read-only directory of models shipped with the app (installed by CMake
+// next to the exe, or in Resources inside a macOS .app bundle).
+std::string getBundledModelsDir();
+
 // Returns the directory containing the running executable
 std::string getExeDir();
 

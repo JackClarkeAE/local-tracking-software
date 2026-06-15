@@ -414,8 +414,17 @@ endif()
 # =============================================================================
 include(GNUInstallDirs)
 
+# Bundled read-only RGB tracking models (MoveNet) shipped with the app so the
+# RGB demo works out of the box. Destination matches getBundledModelsDir().
+set(RGB_MODELS_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../RGB_Models/")
+
 if(APPLE)
     install(TARGETS ${PROJECT_NAME} BUNDLE DESTINATION .)
+    # Models go inside the bundle BEFORE macdeployqt/codesign so the signature
+    # covers them
+    install(DIRECTORY "${RGB_MODELS_SRC}"
+            DESTINATION "${PROJECT_NAME}.app/Contents/Resources/RGB_Models"
+            FILES_MATCHING PATTERN "*.onnx" PATTERN "*.json" PATTERN "*.txt")
     # Bundle Qt frameworks into the .app so the package is self-contained
     find_program(MACDEPLOYQT_EXECUTABLE macdeployqt HINTS "${QT_BIN_DIR}")
     if(MACDEPLOYQT_EXECUTABLE)
@@ -434,8 +443,14 @@ elseif(WIN32)
     install(DIRECTORY "$<TARGET_FILE_DIR:${PROJECT_NAME}>/"
             DESTINATION .
             FILES_MATCHING PATTERN "*.dll" PATTERN "*.onnx")
+    install(DIRECTORY "${RGB_MODELS_SRC}"
+            DESTINATION "RGB_Models"
+            FILES_MATCHING PATTERN "*.onnx" PATTERN "*.json" PATTERN "*.txt")
 else()
     install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(DIRECTORY "${RGB_MODELS_SRC}"
+            DESTINATION "${CMAKE_INSTALL_BINDIR}/RGB_Models"
+            FILES_MATCHING PATTERN "*.onnx" PATTERN "*.json" PATTERN "*.txt")
 endif()
 
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../protocols"

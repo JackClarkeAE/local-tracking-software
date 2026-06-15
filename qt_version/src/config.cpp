@@ -14,12 +14,25 @@
 #include <filesystem>
 #include <algorithm>
 
-#ifndef _WIN32
 #include <QStandardPaths>
 #include <QDir>
-#endif
 
 namespace fs = std::filesystem;
+
+// True if we can actually create files in `dir` (portable ZIP next to a
+// writable folder), false for read-only install locations such as
+// C:\Program Files, a macOS .app bundle, or /usr/bin.
+static bool isDirWritable(const std::string& dir) {
+    if (dir.empty()) return false;
+    std::error_code ec;
+    if (!fs::exists(dir, ec)) return false;
+    const fs::path probe = fs::path(dir) / ".lts_write_test.tmp";
+    std::ofstream f(probe);
+    if (!f.is_open()) return false;
+    f.close();
+    fs::remove(probe, ec);
+    return true;
+}
 
 std::string getExeDir() {
 #ifdef _WIN32
@@ -48,15 +61,40 @@ std::string getExeDir() {
 }
 
 std::string getConfigPath() {
-#ifdef _WIN32
-    // Portable-app convention: config lives next to the exe
-    return getExeDir() + "/config.ini";
-#else
-    // Installed app dir is not writable (.app bundle / /usr/bin)
+    // Portable build (Windows/Linux): keep config next to the exe when that
+    // folder is writable. macOS is always a .app bundle, never portable.
+#ifndef __APPLE__
+    if (isDirWritable(getExeDir()))
+        return getExeDir() + "/config.ini";
+#endif
+    // Installed build (Program Files / .app / /usr/bin are read-only):
+    // use the per-user config location.
     QString dir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
     if (dir.isEmpty()) return getExeDir() + "/config.ini";
     QDir().mkpath(dir);
     return QDir(dir).filePath("config.ini").toStdString();
+}
+
+std::string getDefaultDataRoot() {
+    // Portable build (Windows/Linux): data sits next to the exe when writable.
+#ifndef __APPLE__
+    if (isDirWritable(getExeDir()))
+        return getExeDir();
+#endif
+    // Installed build: the user's Documents folder.
+    QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    if (docs.isEmpty()) docs = QDir::homePath();
+    const QString root = QDir(docs).filePath("Local Tracking Software");
+    QDir().mkpath(root);
+    return root.toStdString();
+}
+
+std::string getBundledModelsDir() {
+    // Read-only models shipped alongside the app (installed by CMake).
+#ifdef __APPLE__
+    return getExeDir() + "/../Resources/RGB_Models";
+#else
+    return getExeDir() + "/RGB_Models";
 #endif
 }
 

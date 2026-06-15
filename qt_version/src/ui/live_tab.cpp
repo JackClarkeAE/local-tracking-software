@@ -30,6 +30,7 @@
 #include <chrono>
 #include <mutex>
 #include <algorithm>
+#include <set>
 
 static void setPrimary(QObject* object) {
     if (auto* widget = qobject_cast<QWidget*>(object)) {
@@ -986,9 +987,18 @@ void LiveTab::populateModelCombo(QComboBox* modelCombo) {
     modelCombo->blockSignals(true);
     modelCombo->clear();
     modelCombo->addItem("None (video only)", QString());
-    for (const auto& m : listRgbModels(ctrl_->config().rgbModelsDir))
-        modelCombo->addItem(QString::fromStdString(m.name),
-                            QString::fromStdString(m.onnxPath));
+    // Scan both the models shipped with the app (read-only, always present)
+    // and the user's configurable models folder; de-duplicate by name.
+    std::set<std::string> seen;
+    auto addFrom = [&](const std::string& dir) {
+        for (const auto& m : listRgbModels(dir)) {
+            if (!seen.insert(m.name).second) continue;
+            modelCombo->addItem(QString::fromStdString(m.name),
+                                QString::fromStdString(m.onnxPath));
+        }
+    };
+    addFrom(getBundledModelsDir());
+    addFrom(ctrl_->config().rgbModelsDir);
     modelCombo->blockSignals(false);
 }
 
