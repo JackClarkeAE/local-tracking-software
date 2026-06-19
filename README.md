@@ -198,5 +198,3 @@ Each recorded session produces three files in the recordings directory:
 - `<ID>_flags.csv` — events: `time_seconds,label`
 - `<ID>_metadata.json` — patient code, operator, protocol, cameras, biofeedback state, video flag
 - `<ID>_video.mp4` — optional camera footage (when "Record Camera Footage" is enabled), reusable for testing other tracking models
-
-Patient identifiers must be coded IDs (e.g. `YORC10`) — never names.
