@@ -1,5 +1,6 @@
 #pragma once
 #include "icamera.h"
+#include "camera_types.h"
 
 #ifdef HAS_ZED_SDK
 #include <sl/Camera.hpp>
@@ -19,6 +20,7 @@ public:
 private:
     bool opened_ = false;
     int activeJointCount_ = 34;
+    ZedBodyFormat bodyFormat_ = ZedBodyFormat::BODY_34;
 #ifdef HAS_ZED_SDK
     sl::Camera zed_;
     sl::Bodies bodies_;
