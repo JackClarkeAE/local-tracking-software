@@ -250,7 +250,17 @@ set(APP_HEADERS
 # =============================================================================
 # Executable
 # =============================================================================
-add_executable(${PROJECT_NAME} ${APP_SOURCES} ${APP_HEADERS})
+# Platform app-icon assets
+set(APP_ICON_SOURCES "")
+if(WIN32)
+    list(APPEND APP_ICON_SOURCES src/ui/app_icon.rc)  # embeds app_icon.ico in the exe
+elseif(APPLE)
+    set(MACOSX_ICON "${CMAKE_CURRENT_SOURCE_DIR}/../packaging/icon.icns")
+    set_source_files_properties("${MACOSX_ICON}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+    list(APPEND APP_ICON_SOURCES "${MACOSX_ICON}")
+endif()
+
+add_executable(${PROJECT_NAME} ${APP_SOURCES} ${APP_HEADERS} ${APP_ICON_SOURCES})
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
     WIN32_EXECUTABLE TRUE
@@ -259,6 +269,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER "com.localtracking.capture"
     MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_ICON_FILE "icon.icns"
     # Custom template adds NSCameraUsageDescription (required for RGB capture)
     MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/cmake/MacOSXBundleInfo.plist.in"
 )
@@ -472,6 +483,14 @@ if(WIN32)
     set(CPACK_NSIS_DISPLAY_NAME "Local Tracking Software")
     set(CPACK_NSIS_EXECUTABLES_DIRECTORY ".")
     set(CPACK_PACKAGE_EXECUTABLES "${PROJECT_NAME};Local Tracking Software")
+    # Start-menu + desktop shortcuts (the installer offers the desktop one)
+    set(CPACK_CREATE_DESKTOP_LINKS "${PROJECT_NAME}")
+    set(CPACK_NSIS_MODIFY_PATH OFF)
+    # Installer / Add-Remove-Programs / shortcut icon
+    set(_winico "${CMAKE_CURRENT_SOURCE_DIR}/../packaging/icon.ico")
+    set(CPACK_NSIS_MUI_ICON "${_winico}")
+    set(CPACK_NSIS_MUI_UNIICON "${_winico}")
+    set(CPACK_NSIS_INSTALLED_ICON_NAME "${PROJECT_NAME}.exe")
 elseif(APPLE)
     set(CPACK_GENERATOR "DragNDrop")
 else()

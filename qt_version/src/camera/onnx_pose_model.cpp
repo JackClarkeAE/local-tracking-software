@@ -282,6 +282,11 @@ bool OnnxPoseModel::infer(const uint8_t* rgba, int width, int height, TrackedBod
     mid(CanonicalJoint::NECK, CanonicalJoint::PELVIS, CanonicalJoint::SPINE_CHEST);
     mid(CanonicalJoint::SPINE_CHEST, CanonicalJoint::PELVIS, CanonicalJoint::SPINE_NAVEL);
     mid(CanonicalJoint::EAR_LEFT, CanonicalJoint::EAR_RIGHT, CanonicalJoint::HEAD);
+    // Clavicles link each shoulder to the chest in the bone graph; pose models
+    // lack them, so without these the shoulders render disconnected from the
+    // torso (no edge across the shoulder line).
+    mid(CanonicalJoint::SPINE_CHEST, CanonicalJoint::SHOULDER_LEFT, CanonicalJoint::CLAVICLE_LEFT);
+    mid(CanonicalJoint::SPINE_CHEST, CanonicalJoint::SHOULDER_RIGHT, CanonicalJoint::CLAVICLE_RIGHT);
     return true;
 }
 

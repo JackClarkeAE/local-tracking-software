@@ -4,5 +4,6 @@
     <file>sounds/beep.wav</file>
     <file>sounds/chime.wav</file>
     <file>sounds/alert.wav</file>
+    <file>app_icon.png</file>
   </qresource>
 </RCC>

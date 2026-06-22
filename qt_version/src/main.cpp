@@ -3,6 +3,7 @@
 #endif
 
 #include <QApplication>
+#include <QIcon>
 #include "ui/main_window.h"
 #include "ui/design_system.h"
 #include "ui/config_setup_dialog.h"
@@ -16,6 +17,7 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     app.setApplicationName("Local Tracking Software (Qt)");
     app.setOrganizationName("LocalTracking");
+    app.setWindowIcon(QIcon(":/ui/app_icon.png"));
 
     DesignSystem::apply(app);
 

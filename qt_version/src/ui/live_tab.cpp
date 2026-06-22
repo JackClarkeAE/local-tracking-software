@@ -144,6 +144,15 @@ LiveTab::LiveTab(AppController* ctrl, QWidget* parent)
     patientViewer_ = new SkeletonView;
     patientViewer_->setMode(SkeletonView::Mode::AutoFit2D);
     patientViewerPanel_ = makeViewPanel("Patient Viewer", patientViewer_);
+    // Prominent recording indicator pinned to the top of the patient viewer
+    recordingBanner_ = new QLabel("●  RECORDING IN PROGRESS");
+    recordingBanner_->setAlignment(Qt::AlignCenter);
+    recordingBanner_->setStyleSheet(
+        "background:#c0202a; color:white; font-weight:bold; letter-spacing:1px;"
+        "padding:5px; border-radius:3px;");
+    recordingBanner_->setVisible(false);
+    if (auto* pv = qobject_cast<QVBoxLayout*>(patientViewerPanel_->layout()))
+        pv->insertWidget(0, recordingBanner_);
     splitter->addWidget(patientViewerPanel_);
 
     // Inline camera feed — the main view when an RGB camera is selected
@@ -251,11 +260,25 @@ LiveTab::LiveTab(AppController* ctrl, QWidget* parent)
     rgbModelCombo_ = new QComboBox;
     rgbModelCombo_->setToolTip(
         "Drop-in tracking model to run on the RGB feed.\n"
-        "Models are .onnx + .json pairs in the RGB_Models folder.");
+        "Models are .onnx + .json pairs in the RGB_Models folder.\n"
+        "A model change takes effect on the next camera restart.");
     connect(rgbModelCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this](int) { updateViewLayout(); onCameraSettingsChanged(); });
+            this, [this](int) {
+                // Changing the model while the camera is live has no effect
+                // until it restarts — surface that instead of silently ignoring.
+                if (modelChangeNote_)
+                    modelChangeNote_->setVisible(ctrl_->slot(0).enabled);
+                updateViewLayout();
+                onCameraSettingsChanged();
+            });
     rgbModelRow_ = addCompactRow(cl, "Model", rgbModelCombo_);
     rgbModelRow_->setVisible(false);
+
+    modelChangeNote_ = new QLabel("Model will be changed on next camera restart");
+    modelChangeNote_->setWordWrap(true);
+    modelChangeNote_->setStyleSheet("color:#e0a030; font-style:italic; font-size:11px;");
+    modelChangeNote_->setVisible(false);
+    cl->addWidget(modelChangeNote_);
 
     addSectionHeader(cl, "Camera Settings");
     zedSettingsGroup_ = new QWidget;
@@ -727,6 +750,7 @@ void LiveTab::updateButtons() {
     bool stopped = (ctrl_->sessionState() == SessionState::Stopped);
     bool running = (ctrl_->sessionState() == SessionState::Running);
     bool isRecording = ctrl_->isAnyRecording();
+    if (recordingBanner_) recordingBanner_->setVisible(isRecording);
     bool protoRunning = (ctrl_->protocolRunner().state() == ProtocolRunnerState::Running);
     auto slotAvailable = [this](QComboBox* categoryCombo, QComboBox* typeCombo) {
         switch (categoryCombo->currentIndex()) {
@@ -1074,6 +1098,8 @@ void LiveTab::onShowFeedToggled(bool enabled) {
 void LiveTab::onStartCamera() {
     applyCameraSettings(0);
     ctrl_->startCamera(0);
+    // The selected model is now applied — clear the pending-change note
+    if (modelChangeNote_) modelChangeNote_->setVisible(false);
 }
 void LiveTab::onStopCamera() {
     ctrl_->stopRecording();

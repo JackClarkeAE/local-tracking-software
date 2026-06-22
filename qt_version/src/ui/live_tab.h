@@ -84,6 +84,8 @@ private:
     QComboBox* cameraTypeCombo_ = nullptr;
     QComboBox* rgbModelCombo_ = nullptr;
     QWidget* rgbModelRow_ = nullptr;
+    QLabel* modelChangeNote_ = nullptr;
+    QLabel* recordingBanner_ = nullptr;
     bool rgbCamerasPresent_ = false;
     int feedSlot_ = 0;  // which slot the inline camera feed displays
     QWidget* zedSettingsGroup_ = nullptr;
