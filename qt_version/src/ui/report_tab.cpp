@@ -25,6 +25,7 @@
 #include <QPainterPath>
 #include <QPageSize>
 #include <QPageLayout>
+#include <QMargins>
 #include <QMarginsF>
 #include <QFont>
 #include <algorithm>
@@ -59,6 +60,10 @@ ReportTab::ReportTab(AppController* ctrl, QWidget* parent)
     pdfView_->setDocument(pdfDoc_);
     pdfView_->setPageMode(QPdfView::PageMode::MultiPage);
     pdfView_->setZoomMode(QPdfView::ZoomMode::FitToWidth);
+    // Sit the page on a visible background with margins, so the preview reads
+    // like a document rather than filling the whole pane edge-to-edge.
+    pdfView_->setDocumentMargins(QMargins(28, 24, 28, 24));
+    pdfView_->setPageSpacing(16);
     leftLayout->addWidget(pdfView_, 1);
     root->addWidget(leftPane, 3);
 
@@ -300,10 +305,14 @@ void ReportTab::regenerate() {
         p.setFont(QFont("Helvetica", 9));
         p.setPen(QColor(30, 30, 30));
 
+        bool firstGroup = true;
         for (int a = 0; a < 6; ++a) {
             bool wantStat = false;
             for (int s = 0; s < STAT_GRAPH; ++s) if (checks_[a][s]->isChecked()) wantStat = true;
             if (!wantStat) continue;
+            // White space between joints so each joint's rows read as a group
+            if (!firstGroup) y += 10;
+            firstGroup = false;
             const AngleStats st = computeAngle(a);
             const QString aname = getAngleDefinition((BiomechAngle)a).displayName;
             for (int s = 0; s < STAT_GRAPH; ++s) {
