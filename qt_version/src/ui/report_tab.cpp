@@ -351,17 +351,23 @@ void ReportTab::onAddMetric() {
     absForm->addRow("Start:", spStart); absForm->addRow("End:", spEnd);
     auto* flagW = new QWidget; auto* flagForm = new QFormLayout(flagW);
     auto* flagStart = new QComboBox; auto* flagEnd = new QComboBox;
+    // Each picker offers Session Start, the recorded flags, then Session End.
     for (auto* fc : {flagStart, flagEnd}) {
+        QPixmap pm0(12, 12); pm0.fill(QColor(120, 120, 120));
+        fc->addItem(QIcon(pm0), "Session Start  (0.0 s)", 0.0);
         for (const auto& fl : playback_->flags()) {
             QPixmap pm(12, 12); pm.fill(flagColor(QString::fromStdString(fl.label)));
             fc->addItem(QIcon(pm),
                 QString("%1  (%2 s)").arg(QString::fromStdString(fl.label)).arg(fl.timeSeconds, 0, 'f', 1),
                 fl.timeSeconds);
         }
+        QPixmap pm1(12, 12); pm1.fill(QColor(120, 120, 120));
+        fc->addItem(QIcon(pm1), QString("Session End  (%1 s)").arg(playback_->duration(), 0, 'f', 1),
+                    playback_->duration());
     }
-    if (flagEnd->count() > 1) flagEnd->setCurrentIndex(flagEnd->count() - 1);
-    flagForm->addRow("Start flag:", flagStart); flagForm->addRow("End flag:", flagEnd);
-    if (playback_->flags().empty()) { flagW->setEnabled(false); rFlag->setEnabled(false); }
+    flagStart->setCurrentIndex(0);                       // Session Start
+    flagEnd->setCurrentIndex(flagEnd->count() - 1);      // Session End
+    flagForm->addRow("Start:", flagStart); flagForm->addRow("End:", flagEnd);
     stack->addWidget(blank); stack->addWidget(absW); stack->addWidget(flagW);
     tfl->addWidget(stack);
     connect(rFull, &QRadioButton::toggled, this, [stack](bool on){ if(on) stack->setCurrentIndex(0); });
