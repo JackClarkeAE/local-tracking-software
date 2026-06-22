@@ -9,6 +9,7 @@ class PlaybackTab;
 class ProtocolEditorTab;
 class DataTab;
 class ExperimentalTab;
+class ReportTab;
 class InfoTab;
 
 class MainWindow : public QMainWindow {
@@ -30,5 +31,6 @@ private:
     ProtocolEditorTab* protocolEditorTab_;
     DataTab* dataTab_;
     ExperimentalTab* experimentalTab_;
+    ReportTab* reportTab_ = nullptr;
     InfoTab* infoTab_;
 };

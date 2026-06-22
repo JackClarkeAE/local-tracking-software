@@ -4,6 +4,7 @@
 #include "protocol_editor_tab.h"
 #include "data_tab.h"
 #include "experimental_tab.h"
+#include "report_tab.h"
 #include "info_tab.h"
 #include "../app_controller.h"
 
@@ -46,6 +47,23 @@ MainWindow::MainWindow(AppController* ctrl, QWidget* parent)
     }
 
     connect(ctrl_, &AppController::errorOccurred, this, &MainWindow::onError);
+
+    // Experimental: the Report tab is added/removed via the Experimental tab
+    connect(experimentalTab_, &ExperimentalTab::reportTabToggled, this,
+            [this](bool enabled) {
+        if (enabled && !reportTab_) {
+            reportTab_ = new ReportTab(ctrl_);
+            // insert just before the Experimental tab
+            const int idx = tabs_->indexOf(experimentalTab_);
+            tabs_->insertTab(idx, reportTab_, "Report");
+            tabs_->setCurrentWidget(reportTab_);
+        } else if (!enabled && reportTab_) {
+            const int idx = tabs_->indexOf(reportTab_);
+            if (idx >= 0) tabs_->removeTab(idx);
+            delete reportTab_;
+            reportTab_ = nullptr;
+        }
+    });
 }
 
 MainWindow::~MainWindow() = default;

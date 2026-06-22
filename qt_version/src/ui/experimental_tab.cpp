@@ -100,6 +100,17 @@ ExperimentalTab::ExperimentalTab(AppController* ctrl, QWidget* parent)
     resampledLayout->addWidget(resampledPlaybackCb_);
     layout->addWidget(resampledGroup);
 
+    // === Session Report ===
+    auto* reportGroup = new QGroupBox("Session Report");
+    reportGroup->setStyleSheet("QGroupBox { color: #e0a030; font-weight: bold; }");
+    auto* reportLayout = new QVBoxLayout(reportGroup);
+    reportTabCb_ = new QCheckBox("Enable Report Tab");
+    reportTabCb_->setToolTip("Adds a 'Report' tab that builds a PDF of biomechanical\n"
+                             "metrics and graphs from a recorded session.");
+    connect(reportTabCb_, &QCheckBox::toggled, this, &ExperimentalTab::reportTabToggled);
+    reportLayout->addWidget(reportTabCb_);
+    layout->addWidget(reportGroup);
+
     // === Block Dodge Game ===
     auto* gameGroup = new QGroupBox("Block Dodge Game");
     gameGroup->setStyleSheet("QGroupBox { color: #e0a030; font-weight: bold; }");

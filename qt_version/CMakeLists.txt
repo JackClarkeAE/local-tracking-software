@@ -149,7 +149,7 @@ endif()
 # 6.6 minimum: camera footage recording needs QVideoFrameInput. Distro
 # packages older than this (e.g. Ubuntu 22.04's Qt 6.2) are rejected here —
 # install official Qt instead (scripts/install_deps_linux.sh does this).
-find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets Multimedia)
+find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets Multimedia Pdf PdfWidgets)
 message(STATUS "Found Qt ${Qt6_VERSION} at ${Qt6_DIR}")
 get_target_property(_qmake_location Qt6::qmake IMPORTED_LOCATION)
 get_filename_component(QT_BIN_DIR "${_qmake_location}" DIRECTORY)
@@ -169,6 +169,7 @@ set(APP_SOURCES
     src/ui/widget_kit.cpp
     src/ui/info_tab.cpp
     src/ui/experimental_tab.cpp
+    src/ui/report_tab.cpp
     src/ui/data_tab.cpp
     src/ui/protocol_editor_tab.cpp
     src/ui/live_tab.cpp
@@ -216,6 +217,7 @@ set(APP_HEADERS
     src/ui/widget_kit.h
     src/ui/info_tab.h
     src/ui/experimental_tab.h
+    src/ui/report_tab.h
     src/ui/data_tab.h
     src/ui/protocol_editor_tab.h
     src/ui/live_tab.h
@@ -310,6 +312,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::OpenGL
     Qt6::OpenGLWidgets
     Qt6::Multimedia
+    Qt6::Pdf
+    Qt6::PdfWidgets
 )
 
 # Windows SDK for file dialogs / shell
