@@ -313,10 +313,10 @@ void ReportTab::regenerate() {
             // White space + a short centred divider between joints so each
             // joint's rows read as their own group
             if (!firstGroup) {
-                y += 6;
+                y += 13;
                 p.setPen(QColor(195, 195, 195));
                 p.drawLine(QPointF(W * 0.34, y), QPointF(W * 0.66, y));
-                y += 8;
+                y += 13;
                 p.setPen(QColor(30, 30, 30)); // restore text colour for the rows
             }
             firstGroup = false;
@@ -333,7 +333,7 @@ void ReportTab::regenerate() {
                 p.drawText(QRectF(c2, y, c3 - c2, 16), Qt::AlignLeft,
                            st.valid ? QString("%1°").arg(val, 0, 'f', 1) : "—");
                 p.drawText(QRectF(c3, y, W - c3, 16), Qt::AlignLeft, QString::number(st.samples));
-                y += 17;
+                y += 22;
             }
         }
         y += 16;
