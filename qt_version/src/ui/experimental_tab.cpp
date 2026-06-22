@@ -109,6 +109,19 @@ ExperimentalTab::ExperimentalTab(AppController* ctrl, QWidget* parent)
                              "metrics and graphs from a recorded session.");
     connect(reportTabCb_, &QCheckBox::toggled, this, &ExperimentalTab::reportTabToggled);
     reportLayout->addWidget(reportTabCb_);
+
+    auto* ankleNote = new QLabel(
+        "Note: ankle dorsiflexion metrics are temporarily removed from reports. "
+        "Markerless depth cameras cannot reliably measure the ankle joint angle — "
+        "Kinect reference-value studies report the ankle \"could not be correctly "
+        "obtained\" (Sensors, PMC10730124); a systematic review found the ankle shows "
+        "poor concurrent validity vs marker-based capture while hip and knee are "
+        "moderate–excellent (Markerless 3D MoCap meta-analysis, 2024); and depth-camera "
+        "lower-limb angle reliability remains limited (J Biomech, S0021929024002380). "
+        "Knee and hip metrics are retained.");
+    ankleNote->setWordWrap(true);
+    ankleNote->setStyleSheet("color:#9aa3ad; font-size:11px;");
+    reportLayout->addWidget(ankleNote);
     layout->addWidget(reportGroup);
 
     // === Block Dodge Game ===

@@ -1,5 +1,6 @@
 #pragma once
 #include <QWidget>
+#include <QString>
 #include <memory>
 #include <string>
 #include <vector>
@@ -11,53 +12,70 @@ class QPdfView;
 class QPdfDocument;
 class QComboBox;
 class QPushButton;
-class QCheckBox;
 class QLabel;
+class QVBoxLayout;
 
 // EXPERIMENTAL — Report tab.
-// Takes a recorded session and produces a PDF of biomechanical metrics and
-// graphs. Left side: embedded PDF preview (scrollable). Right side: a session
-// picker plus per-joint metric checkboxes (ROM / Max / Mean / Min / Graph)
-// that regenerate the report live. The report can then be exported anywhere.
+// Builds a PDF of biomechanical metrics/graphs from a recorded session. The
+// user adds metric blocks via a "+ Add Metric" dialog; each block specifies an
+// angle, which statistics, a timeframe (full session / absolute times / a
+// start+end flag from the recording), and an aggregation (whole window, or
+// per-gait-cycle then averaged). Left side shows a live PDF preview.
+//
+// Ankle dorsiflexion is intentionally excluded — markerless depth cameras
+// cannot measure it reliably (see the note in the Experimental tab).
 class ReportTab : public QWidget {
     Q_OBJECT
 public:
     explicit ReportTab(AppController* ctrl, QWidget* parent = nullptr);
     ~ReportTab() override;
 
-    // Repopulate the session dropdown from the recordings directory.
     void refreshSessions();
 
-    enum Stat { STAT_ROM = 0, STAT_MAX, STAT_MEAN, STAT_MIN, STAT_GRAPH, STAT_COUNT };
+    enum TimeMode { TIME_FULL = 0, TIME_ABSOLUTE, TIME_FLAGS };
+    enum Agg { AGG_WHOLE = 0, AGG_PER_CYCLE };
+
+    // One configured report block.
+    struct Metric {
+        int angle = 0;                       // BiomechAngle index (knee/hip only)
+        bool rom = true, max = false, mean = false, min = false, graph = false;
+        int timeMode = TIME_FULL;
+        double tStart = 0, tEnd = 0;          // TIME_ABSOLUTE (seconds)
+        double flagStart = -1, flagEnd = -1;  // TIME_FLAGS (resolved times)
+        QString flagStartLabel, flagEndLabel;
+        int agg = AGG_WHOLE;
+    };
 
 private slots:
     void onSessionChanged();
-    void onSelectionChanged();
+    void onAddMetric();
     void onExport();
 
 private:
-    // Per-angle time series + summary statistics over the loaded session.
-    struct AngleStats {
+    struct Stats {
         bool valid = false;
-        int samples = 0;
+        int samples = 0, cycles = 0;
         double minV = 0, maxV = 0, mean = 0, rom = 0;
-        std::vector<std::pair<double, double>> series; // (timeSeconds, degrees)
+        std::vector<std::pair<double, double>> windowSeries; // (t, deg) within window
     };
 
     void loadSession(const std::string& csvPath);
-    AngleStats computeAngle(int angleId) const;
-    void regenerate();          // build the PDF and reload the preview
-    bool anySelection() const;
+    std::vector<std::pair<double, double>> fullSeries(int angle) const; // (t, deg)
+    void windowBounds(const Metric& m, double& t0, double& t1) const;
+    Stats computeStats(const Metric& m) const;
+    void rebuildCards();
+    void regenerate();
 
     AppController* ctrl_ = nullptr;
-
     QPdfView* pdfView_ = nullptr;
     QPdfDocument* pdfDoc_ = nullptr;
     QComboBox* sessionCombo_ = nullptr;
     QLabel* statusLabel_ = nullptr;
+    QPushButton* addBtn_ = nullptr;
     QPushButton* exportBtn_ = nullptr;
-    QCheckBox* checks_[6][STAT_COUNT] = {}; // [angle][stat]
+    QVBoxLayout* cardsLayout_ = nullptr;
 
+    std::vector<Metric> metrics_;
     std::unique_ptr<PlaybackManager> playback_;
     std::string loadedCsv_;
     std::string tempPdfPath_;
