@@ -299,9 +299,9 @@ void ReportTab::regenerate() {
         p.drawText(QRectF(c1, y, c2 - c1, 16), Qt::AlignLeft, "Statistic");
         p.drawText(QRectF(c2, y, c3 - c2, 16), Qt::AlignLeft, "Value");
         p.drawText(QRectF(c3, y, W - c3, 16), Qt::AlignLeft, "Samples");
-        y += 16;
+        y += 22;  // clear gap so the underline sits below the header text
         p.setPen(QColor(180, 180, 180));
-        p.drawLine(QPointF(0, y), QPointF(W, y)); y += 4;
+        p.drawLine(QPointF(0, y), QPointF(W, y)); y += 8;
         p.setFont(QFont("Helvetica", 9));
         p.setPen(QColor(30, 30, 30));
 
@@ -310,8 +310,15 @@ void ReportTab::regenerate() {
             bool wantStat = false;
             for (int s = 0; s < STAT_GRAPH; ++s) if (checks_[a][s]->isChecked()) wantStat = true;
             if (!wantStat) continue;
-            // White space between joints so each joint's rows read as a group
-            if (!firstGroup) y += 10;
+            // White space + a short centred divider between joints so each
+            // joint's rows read as their own group
+            if (!firstGroup) {
+                y += 6;
+                p.setPen(QColor(195, 195, 195));
+                p.drawLine(QPointF(W * 0.34, y), QPointF(W * 0.66, y));
+                y += 8;
+                p.setPen(QColor(30, 30, 30)); // restore text colour for the rows
+            }
             firstGroup = false;
             const AngleStats st = computeAngle(a);
             const QString aname = getAngleDefinition((BiomechAngle)a).displayName;
