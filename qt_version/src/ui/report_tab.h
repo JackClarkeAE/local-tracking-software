@@ -34,11 +34,14 @@ public:
 
     enum TimeMode { TIME_FULL = 0, TIME_ABSOLUTE, TIME_FLAGS };
     enum Agg { AGG_WHOLE = 0, AGG_PER_CYCLE };
+    enum Kind { KIND_TABLE = 0, KIND_RADAR };
 
-    // One configured report block.
+    // One configured report block (a metric table, or a radar comparison).
     struct Metric {
+        int kind = KIND_TABLE;
         int angle = 0;                       // BiomechAngle index (knee/hip only)
         bool rom = true, max = false, mean = false, min = false, graph = false;
+        int radarStat = 1;                   // KIND_RADAR: 0=ROM, 1=peak flexion
         int timeMode = TIME_FULL;
         double tStart = 0, tEnd = 0;          // TIME_ABSOLUTE (seconds)
         double flagStart = -1, flagEnd = -1;  // TIME_FLAGS (resolved times)
@@ -49,6 +52,9 @@ public:
 private slots:
     void onSessionChanged();
     void onAddMetric();
+    void onAddRadar();
+    void onSaveStandard();
+    void onLoadStandard();
     void onExport();
 
 private:
@@ -63,6 +69,7 @@ private:
     std::vector<std::pair<double, double>> fullSeries(int angle) const; // (t, deg)
     void windowBounds(const Metric& m, double& t0, double& t1) const;
     Stats computeStats(const Metric& m) const;
+    void resolveFlagTimes(Metric& m) const;   // re-resolve flag labels for this session
     void rebuildCards();
     void regenerate();
 
@@ -72,6 +79,7 @@ private:
     QComboBox* sessionCombo_ = nullptr;
     QLabel* statusLabel_ = nullptr;
     QPushButton* addBtn_ = nullptr;
+    QPushButton* addRadarBtn_ = nullptr;
     QPushButton* exportBtn_ = nullptr;
     QVBoxLayout* cardsLayout_ = nullptr;
 
