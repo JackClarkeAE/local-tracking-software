@@ -109,6 +109,9 @@ endif()
 # to a prebuilt release (https://github.com/microsoft/onnxruntime/releases).
 # =============================================================================
 set(HAS_ONNX_RUNTIME FALSE)
+# Release/CI builds set this ON so a missing ONNX Runtime fails configuration
+# loudly instead of silently producing a stub build with no RGB pose tracking.
+option(REQUIRE_ONNX_RUNTIME "Fail configuration if ONNX Runtime is not found" OFF)
 find_package(onnxruntime QUIET)
 if(onnxruntime_FOUND)
     set(HAS_ONNX_RUNTIME TRUE)
@@ -135,6 +138,14 @@ else()
     else()
         message(STATUS "ONNX Runtime not found — RGB tracking models disabled")
     endif()
+endif()
+
+if(NOT HAS_ONNX_RUNTIME AND REQUIRE_ONNX_RUNTIME)
+    message(FATAL_ERROR
+        "ONNX Runtime was required (REQUIRE_ONNX_RUNTIME=ON) but not found. "
+        "Set ONNXRUNTIME_ROOT to a prebuilt release "
+        "(https://github.com/microsoft/onnxruntime/releases) or install the "
+        "onnxruntime CMake package.")
 endif()
 
 # =============================================================================
@@ -413,7 +424,21 @@ if(WIN32)
                         "$<TARGET_FILE_DIR:${PROJECT_NAME}>")
             endif()
         endforeach()
-        foreach(dll k4abt.dll directml.dll onnxruntime.dll dnn_model_2_0_op11.onnx)
+        # K4ABT ships its own (older, ~1.10) onnxruntime.dll. When the app is
+        # built with the standalone ONNX Runtime for RGB pose tracking, that
+        # newer DLL (copied above) is the canonical one — letting K4ABT's copy
+        # overwrite it breaks RGB inference (ORT API-version mismatch crash),
+        # since both land in the same directory under the same name. So ship
+        # K4ABT's onnxruntime.dll only when the app has no ONNX Runtime of its
+        # own. (k4abt.dll then loads the app's newer runtime; if Kinect body
+        # tracking misbehaves against it, build RGB and Kinect separately.)
+        set(_k4abt_dlls k4abt.dll directml.dll dnn_model_2_0_op11.onnx)
+        if(HAS_ONNX_RUNTIME)
+            message(STATUS "K4A: keeping the app's ONNX Runtime; skipping K4ABT's onnxruntime.dll")
+        else()
+            list(APPEND _k4abt_dlls onnxruntime.dll)
+        endif()
+        foreach(dll ${_k4abt_dlls})
             if(EXISTS "${K4ABT_BIN_DIR}/${dll}")
                 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy_if_different

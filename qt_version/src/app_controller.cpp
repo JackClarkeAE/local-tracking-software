@@ -257,7 +257,15 @@ void AppController::startCamera(int slotIndex) {
 
     if (camType == CameraType::RGBWebcam && !cfg.rgbModelOnnx.empty()) {
         // RGB camera with a drop-in tracking model behaves like a
-        // markerless camera: frames carry both image and tracked bodies
+        // markerless camera: frames carry both image and tracked bodies.
+        // If this build has no ONNX Runtime the model can't run, so warn the
+        // user up front instead of silently falling back to video-only.
+        if (!OnnxPoseModel::runtimeAvailable()) {
+            emit errorOccurred(QStringLiteral(
+                "This build has no ONNX Runtime, so RGB pose tracking is unavailable — "
+                "the camera will show video only, with no skeleton. Install a build with "
+                "ONNX Runtime enabled to track from an RGB webcam."));
+        }
         slot.camera = std::make_unique<ModelTracker>(createCamera(camType));
     } else {
         slot.camera = createCamera(camType);
