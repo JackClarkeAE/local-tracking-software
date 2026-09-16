@@ -135,6 +135,11 @@ bool loadConfig(const std::string& iniPath, AppConfig& out) {
         else if (key == "protocols") out.protocolsDir = val;
         else if (key == "rgb_models") out.rgbModelsDir = val;
         else if (key == "ui_mode") out.uiMode = val;
+        else if (key == "camera_type") out.defaultCameraType = val;
+        else if (key == "device") out.defaultDevice = val;
+        else if (key == "rgb_model") out.defaultRgbModel = val;
+        else if (key == "protocol") out.defaultProtocol = val;
+        else if (key == "clinician") out.defaultClinician = val;
     }
 
     return !out.recordingsDir.empty() || !out.protocolsDir.empty();
@@ -152,6 +157,16 @@ bool saveConfig(const std::string& iniPath, const AppConfig& cfg) {
     if (!cfg.uiMode.empty()) {
         f << "\n[ui]\n";
         f << "ui_mode=" << cfg.uiMode << "\n";
+    }
+    if (!cfg.defaultCameraType.empty() || !cfg.defaultDevice.empty() ||
+        !cfg.defaultRgbModel.empty() || !cfg.defaultProtocol.empty() ||
+        !cfg.defaultClinician.empty()) {
+        f << "\n[defaults]\n";
+        if (!cfg.defaultCameraType.empty()) f << "camera_type=" << cfg.defaultCameraType << "\n";
+        if (!cfg.defaultDevice.empty())     f << "device=" << cfg.defaultDevice << "\n";
+        if (!cfg.defaultRgbModel.empty())   f << "rgb_model=" << cfg.defaultRgbModel << "\n";
+        if (!cfg.defaultProtocol.empty())   f << "protocol=" << cfg.defaultProtocol << "\n";
+        if (!cfg.defaultClinician.empty())  f << "clinician=" << cfg.defaultClinician << "\n";
     }
 
     return f.good();

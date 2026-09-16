@@ -3,6 +3,8 @@
 #include <QMainWindow>
 #include <QTabWidget>
 #include <QStatusBar>
+#include <QIcon>
+#include <QColor>
 
 class AppController;
 class ClinicalRecordTab;
@@ -24,10 +26,12 @@ public:
 
 private slots:
     void onError(QString message);
+    void onOpenSettings();
 
 private:
     void buildClinicalTabs();
     void buildResearchTabs();
+    static QIcon makeGearIcon(const QColor& color);
 
     AppController* ctrl_;
     UiMode mode_;

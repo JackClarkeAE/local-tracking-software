@@ -10,6 +10,14 @@ struct AppConfig {
     // UI layer: "clinical" (reduced Record + Viewer UI, clinical theme) or
     // "research" (the full upstream tab set). Empty means clinical.
     std::string uiMode;
+
+    // Clinical defaults ([defaults] in config.ini), applied to the Record tab
+    // at start-up so a clinic can pre-select its usual setup. All optional.
+    std::string defaultCameraType;   // "depth" or "rgb"
+    std::string defaultDevice;       // "ZED 2i" / "Azure Kinect", or an RGB camera name
+    std::string defaultRgbModel;     // pose model name for RGB cameras
+    std::string defaultProtocol;     // protocol file name
+    std::string defaultClinician;    // pre-filled Clinician field
 };
 
 // Default RGB_Models location for a given recordings directory

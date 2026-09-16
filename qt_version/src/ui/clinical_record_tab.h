@@ -30,6 +30,11 @@ public:
     explicit ClinicalRecordTab(AppController* ctrl, QWidget* parent = nullptr);
     ~ClinicalRecordTab() override;
 
+    // Pre-select the clinic defaults from config.ini ([defaults]): camera
+    // type/device/model, protocol and clinician. Called at start-up and
+    // after the Defaults dialog is saved. No-op while the camera is running.
+    void applyDefaults();
+
 private slots:
     void onTick();
     void onCameraCategoryChanged();

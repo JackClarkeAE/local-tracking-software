@@ -644,3 +644,23 @@ QScrollBar::sub-page {
     border: none;
     background: none;
 }
+
+/* Gear button in the tab bar corner (clinical defaults) */
+QToolButton[settingsButton="true"] {
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: #5b6b7b;
+    font-size: 18px;
+    padding: 0 10px;
+    min-height: 30px;
+}
+
+QToolButton[settingsButton="true"]:hover {
+    background-color: #f3f6f9;
+    color: #006e82;
+}
+
+QToolButton[settingsButton="true"]:pressed {
+    background-color: #e3e9ef;
+}

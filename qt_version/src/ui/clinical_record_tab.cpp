@@ -5,6 +5,7 @@
 #include "widget_kit.h"
 #include "../camera/model_tracker.h"
 #include "../app_controller.h"
+#include "../config.h"
 
 #include <QHBoxLayout>
 #include <QVBoxLayout>
@@ -274,9 +275,36 @@ ClinicalRecordTab::ClinicalRecordTab(AppController* ctrl, QWidget* parent)
     populateDeviceCombo();
     applyCameraSettings();
     refreshProtocolList();
+    applyDefaults();
     updateViewLayout();
     updateButtons();
     updateStatus();
+    updateProtocolUI();
+}
+
+void ClinicalRecordTab::applyDefaults() {
+    if (ctrl_->sessionState() != SessionState::Stopped) return;
+    const AppConfig& cfg = ctrl_->config();
+
+    const int category = cfg.defaultCameraType == "rgb" ? 1 : 0;
+    if (cameraCategoryCombo_->currentIndex() != category)
+        cameraCategoryCombo_->setCurrentIndex(category);  // repopulates device/model combos
+    else
+        onCameraCategoryChanged();
+
+    auto select = [](QComboBox* combo, const std::string& text) {
+        if (text.empty()) return;
+        const int idx = combo->findText(QString::fromStdString(text));
+        if (idx >= 0) combo->setCurrentIndex(idx);
+    };
+    select(cameraDeviceCombo_, cfg.defaultDevice);
+    if (category == 1) select(rgbModelCombo_, cfg.defaultRgbModel);
+    select(protocolCombo_, cfg.defaultProtocol);
+    if (clinicianEdit_->text().isEmpty() && !cfg.defaultClinician.empty())
+        clinicianEdit_->setText(QString::fromStdString(cfg.defaultClinician));
+
+    applyCameraSettings();
+    updateButtons();
     updateProtocolUI();
 }
 

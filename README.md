@@ -106,6 +106,19 @@ panels, deep teal accent, red for recording).
 | **Record** | Camera type + device, one-click *Run Assessment* (loads and runs a protocol), patient ID / clinician / notes, patient screen on a second display. Recording is driven by the protocol's own events and files are named after the Patient ID. |
 | **Viewer** | The upstream playback tab: load and review recorded sessions. |
 
+The gear button beside the tabs opens **Defaults**: the camera type, device,
+pose model, protocol and clinician that the Record tab pre-selects at
+start-up. They are stored in `config.ini` under `[defaults]`:
+
+```ini
+[defaults]
+camera_type=rgb            # depth | rgb
+device=Logitech BRIO       # "ZED 2i" / "Azure Kinect", or an RGB camera name
+rgb_model=RTMPose-M        # pose model (RGB only)
+protocol=Control_Gathering_6_Minute_Protocol.json
+clinician=JC
+```
+
 Everything else (camera tuning, second camera, overlays, smoothing,
 biofeedback, protocol editor, data export, experimental features) stays in the
 **research UI**, which is the full upstream tab set with the dark theme. Switch
