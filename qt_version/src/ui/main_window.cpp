@@ -1,4 +1,5 @@
 #include "main_window.h"
+#include "clinical_record_tab.h"
 #include "live_tab.h"
 #include "playback_tab.h"
 #include "protocol_editor_tab.h"
@@ -10,9 +11,11 @@
 
 #include <QMessageBox>
 
-MainWindow::MainWindow(AppController* ctrl, QWidget* parent)
-    : QMainWindow(parent), ctrl_(ctrl) {
-    setWindowTitle("York Clinical Tracking Suite (YCTS)");
+MainWindow::MainWindow(AppController* ctrl, UiMode mode, QWidget* parent)
+    : QMainWindow(parent), ctrl_(ctrl), mode_(mode) {
+    setWindowTitle(mode_ == UiMode::Clinical
+        ? "York Clinical Tracking Suite"
+        : "York Clinical Tracking Suite — Research UI");
     resize(1400, 800);
     setMinimumSize(1000, 600);
     setProperty("dsAppShell", true);
@@ -21,8 +24,35 @@ MainWindow::MainWindow(AppController* ctrl, QWidget* parent)
     tabs_->setDocumentMode(true);
     setCentralWidget(tabs_);
 
+    if (mode_ == UiMode::Clinical) buildClinicalTabs();
+    else buildResearchTabs();
+
+    statusBar_ = statusBar();
+    statusBar_->setProperty("dsStatusBar", true);
+    if (!ctrl_->sdkWarning().empty()) {
+        statusBar_->showMessage(QString::fromStdString(ctrl_->sdkWarning()));
+    } else {
+        statusBar_->showMessage("Ready");
+    }
+
+    connect(ctrl_, &AppController::errorOccurred, this, &MainWindow::onError);
+}
+
+// Clinical UI layer: only what a clinic session needs — record a patient,
+// review a recording. Everything else lives in the research UI.
+void MainWindow::buildClinicalTabs() {
+    recordTab_ = new ClinicalRecordTab(ctrl_);
+    // The Viewer is the upstream playback tab; without an Experimental tab the
+    // legacy/resampled loaders simply stay hidden.
+    playbackTab_ = new PlaybackTab(ctrl_, nullptr);
+
+    tabs_->addTab(recordTab_, "Record");
+    tabs_->addTab(playbackTab_, "Viewer");
+}
+
+// Research UI: the full upstream tab set.
+void MainWindow::buildResearchTabs() {
     liveTab_ = new LiveTab(ctrl_);
-    playbackTab_ = nullptr;  // created after experimentalTab_
     protocolEditorTab_ = new ProtocolEditorTab(ctrl_);
     dataTab_ = new DataTab(ctrl_);
     experimentalTab_ = new ExperimentalTab(ctrl_);
@@ -37,16 +67,6 @@ MainWindow::MainWindow(AppController* ctrl, QWidget* parent)
     tabs_->addTab(dataTab_, "Data");
     tabs_->addTab(experimentalTab_, "Experimental");
     tabs_->addTab(infoTab_, "Info");
-
-    statusBar_ = statusBar();
-    statusBar_->setProperty("dsStatusBar", true);
-    if (!ctrl_->sdkWarning().empty()) {
-        statusBar_->showMessage(QString::fromStdString(ctrl_->sdkWarning()));
-    } else {
-        statusBar_->showMessage("Ready");
-    }
-
-    connect(ctrl_, &AppController::errorOccurred, this, &MainWindow::onError);
 
     // Experimental: the Report tab is added/removed via the Experimental tab
     connect(experimentalTab_, &ExperimentalTab::reportTabToggled, this,

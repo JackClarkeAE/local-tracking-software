@@ -7,6 +7,9 @@ struct AppConfig {
     // Drop-in RGB tracking models (.onnx + .json pairs). Defaults to a
     // sibling of the recordings directory named RGB_Models.
     std::string rgbModelsDir;
+    // UI layer: "clinical" (reduced Record + Viewer UI, clinical theme) or
+    // "research" (the full upstream tab set). Empty means clinical.
+    std::string uiMode;
 };
 
 // Default RGB_Models location for a given recordings directory

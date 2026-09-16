@@ -134,6 +134,7 @@ bool loadConfig(const std::string& iniPath, AppConfig& out) {
         if (key == "recordings") out.recordingsDir = val;
         else if (key == "protocols") out.protocolsDir = val;
         else if (key == "rgb_models") out.rgbModelsDir = val;
+        else if (key == "ui_mode") out.uiMode = val;
     }
 
     return !out.recordingsDir.empty() || !out.protocolsDir.empty();
@@ -148,6 +149,10 @@ bool saveConfig(const std::string& iniPath, const AppConfig& cfg) {
     f << "protocols=" << cfg.protocolsDir << "\n";
     if (!cfg.rgbModelsDir.empty())
         f << "rgb_models=" << cfg.rgbModelsDir << "\n";
+    if (!cfg.uiMode.empty()) {
+        f << "\n[ui]\n";
+        f << "ui_mode=" << cfg.uiMode << "\n";
+    }
 
     return f.good();
 }

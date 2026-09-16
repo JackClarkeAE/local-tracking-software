@@ -176,6 +176,7 @@ set(APP_SOURCES
 
     # UI
     src/ui/main_window.cpp
+    src/ui/clinical_record_tab.cpp
     src/ui/design_system.cpp
     src/ui/widget_kit.cpp
     src/ui/info_tab.cpp
@@ -224,6 +225,8 @@ set(APP_HEADERS
     src/app_controller.h
     src/config.h
     src/ui/main_window.h
+    src/ui/app_ui_mode.h
+    src/ui/clinical_record_tab.h
     src/ui/design_system.h
     src/ui/widget_kit.h
     src/ui/info_tab.h

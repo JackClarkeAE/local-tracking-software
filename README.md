@@ -94,7 +94,33 @@ an existing Local Tracking Software install without touching its config or
 recordings. Copy `config.ini` and the `recordings/` folder across manually if
 you want to migrate.
 
-Functional changes specific to YCTS will be listed here as they land.
+### Clinical UI layer
+
+YCTS starts in a reduced **clinical UI** by default. It keeps the same
+patient-facing screen and clinician view as the research Live tab but exposes
+only what a clinic session needs, and uses a light clinical theme (white
+panels, deep teal accent, red for recording).
+
+| Tab | Purpose |
+|---|---|
+| **Record** | Patient ID / clinician / notes, camera type + device, one-click *Run Assessment* (loads and runs a protocol), Start/Stop camera and recording, patient screen on a second display. Joint recording is always on. |
+| **Viewer** | The upstream playback tab: load and review recorded sessions. |
+
+Everything else (camera tuning, second camera, overlays, smoothing,
+biofeedback, protocol editor, data export, experimental features) stays in the
+**research UI**, which is the full upstream tab set with the dark theme. Switch
+between them with a command-line flag or in `config.ini`:
+
+```
+YCTS_Qt --research        # full upstream UI for this launch
+YCTS_Qt --clinical        # reduced clinical UI for this launch
+
+[ui]
+ui_mode=research          # config.ini default (clinical when absent)
+```
+
+The command-line flag wins over `config.ini`. Both UIs share the same
+controller, recordings, protocols and data formats.
 
 ## Repository layout
 
