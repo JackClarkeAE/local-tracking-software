@@ -10,6 +10,8 @@
 #include <QVBoxLayout>
 #include <QSplitter>
 #include <QLineEdit>
+#include <QRegularExpression>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QLabel>
 #include <QCheckBox>
@@ -126,28 +128,6 @@ ClinicalRecordTab::ClinicalRecordTab(AppController* ctrl, QWidget* parent)
     statusPill_->setAlignment(Qt::AlignCenter);
     cl->addWidget(statusPill_);
 
-    // Patient
-    WidgetKit::addSectionHeader(cl, "Patient");
-    patientIdEdit_ = new QLineEdit;
-    patientIdEdit_->setPlaceholderText("Required to run an assessment");
-    clinicianEdit_ = new QLineEdit;
-    clinicianEdit_->setPlaceholderText("Name or initials");
-    notesEdit_ = new QLineEdit;
-    notesEdit_->setPlaceholderText("Optional");
-    connect(patientIdEdit_, &QLineEdit::textChanged, this, [this](const QString& s) {
-        ctrl_->patientId = s.toStdString();
-        updateButtons();
-    });
-    connect(clinicianEdit_, &QLineEdit::textChanged, this, [this](const QString& s) {
-        ctrl_->operatorName = s.toStdString();
-    });
-    connect(notesEdit_, &QLineEdit::textChanged, this, [this](const QString& s) {
-        ctrl_->sessionNotes = s.toStdString();
-    });
-    labeledRow(cl, "Patient ID", patientIdEdit_);
-    labeledRow(cl, "Clinician", clinicianEdit_);
-    labeledRow(cl, "Notes", notesEdit_);
-
     // Camera
     WidgetKit::addSectionHeader(cl, "Camera");
     cameraCategoryCombo_ = new QComboBox;
@@ -224,30 +204,34 @@ ClinicalRecordTab::ClinicalRecordTab(AppController* ctrl, QWidget* parent)
     nextBox_->setVisible(false);
     cl->addWidget(nextBox_);
 
-    // Recording
-    WidgetKit::addSectionHeader(cl, "Recording");
-    fileNameEdit_ = new QLineEdit("session");
-    connect(fileNameEdit_, &QLineEdit::textChanged, this, [this](const QString& s) {
-        ctrl_->recordingFileName = s.toStdString();
-    });
-    labeledRow(cl, "File name", fileNameEdit_);
-
-    recordVideoCb_ = new QCheckBox("Also record camera footage (MP4)");
-    connect(recordVideoCb_, &QCheckBox::toggled, this, [this](bool v) {
-        ctrl_->recordVideo = v;
+    // Patient
+    WidgetKit::addSectionHeader(cl, "Patient");
+    patientIdEdit_ = new QLineEdit;
+    patientIdEdit_->setPlaceholderText("Required to run an assessment");
+    clinicianEdit_ = new QLineEdit;
+    clinicianEdit_->setPlaceholderText("Name or initials");
+    notesEdit_ = new QPlainTextEdit;
+    notesEdit_->setPlaceholderText("Optional");
+    // Three lines tall by default to encourage clinicians to write notes.
+    notesEdit_->setFixedHeight(3 * patientIdEdit_->sizeHint().height());
+    notesEdit_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    connect(patientIdEdit_, &QLineEdit::textChanged, this, [this](const QString& s) {
+        ctrl_->patientId = s.toStdString();
         updateButtons();
     });
-    if (!ctrl_->videoRecordingSupported()) {
-        recordVideoCb_->setEnabled(false);
-        recordVideoCb_->setToolTip("Camera footage recording requires Qt 6.6 or newer.");
-    }
-    cl->addWidget(recordVideoCb_);
-
-    startRecBtn_ = WidgetKit::button("Start Recording", WidgetKit::ButtonRole::Primary);
-    stopRecBtn_ = WidgetKit::button("Stop Recording", WidgetKit::ButtonRole::Recording);
-    connect(startRecBtn_, &QPushButton::clicked, this, &ClinicalRecordTab::onStartRecording);
-    connect(stopRecBtn_, &QPushButton::clicked, this, &ClinicalRecordTab::onStopRecording);
-    buttonRow(cl, startRecBtn_, stopRecBtn_);
+    connect(clinicianEdit_, &QLineEdit::textChanged, this, [this](const QString& s) {
+        ctrl_->operatorName = s.toStdString();
+    });
+    connect(notesEdit_, &QPlainTextEdit::textChanged, this, [this] {
+        ctrl_->sessionNotes = notesEdit_->toPlainText().toStdString();
+    });
+    labeledRow(cl, "Patient ID", patientIdEdit_);
+    labeledRow(cl, "Clinician", clinicianEdit_);
+    auto* notesRow = labeledRow(cl, "Notes", notesEdit_);
+    // The row must not soak up the panel's spare height; pin it to the box.
+    notesRow->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    if (auto* notesLabel = notesRow->findChild<QLabel*>())
+        notesRow->layout()->setAlignment(notesLabel, Qt::AlignTop);
 
     // Patient screen
     WidgetKit::addSectionHeader(cl, "Patient Screen");
@@ -384,10 +368,6 @@ void ClinicalRecordTab::updateButtons() {
     cameraDeviceCombo_->setEnabled(stopped);
     rgbModelCombo_->setEnabled(stopped);
 
-    fileNameEdit_->setEnabled(!recording);
-    startRecBtn_->setEnabled(running && !recording);
-    stopRecBtn_->setEnabled(recording);
-
     patientIdEdit_->setEnabled(stopped);
     clinicianEdit_->setEnabled(stopped);
     notesEdit_->setEnabled(stopped);
@@ -430,11 +410,22 @@ void ClinicalRecordTab::updateProtocolUI() {
         currentBox_->setVisible(false);
         nextBox_->setVisible(false);
         countdownLabel_->setVisible(false);
-        protocolInfoLabel_->setText(ctrl_->isProtocolLoaded()
-            ? QString("Ready: %1 (%2 steps)")
-                  .arg(QString::fromStdString(ctrl_->loadedProtocol().name))
-                  .arg(static_cast<int>(ctrl_->loadedProtocol().events.size()))
-            : QString("Select a protocol and press Run Assessment."));
+        // Tell the clinician what still blocks Run Assessment rather than
+        // leaving a silently disabled button.
+        QString hint;
+        if (protocolCombo_->count() == 0 || protocolCombo_->currentText().isEmpty())
+            hint = "No protocols found. Add protocol files to the protocols folder.";
+        else if (ctrl_->patientId.empty())
+            hint = "Enter a Patient ID to run an assessment.";
+        else if (ctrl_->sessionState() != SessionState::Running)
+            hint = "Start the camera to run an assessment.";
+        else if (ctrl_->isProtocolLoaded())
+            hint = QString("Ready: %1 (%2 steps)")
+                       .arg(QString::fromStdString(ctrl_->loadedProtocol().name))
+                       .arg(static_cast<int>(ctrl_->loadedProtocol().events.size()));
+        else
+            hint = "Press Run Assessment to begin.";
+        protocolInfoLabel_->setText(hint);
         return;
     }
 
@@ -572,14 +563,6 @@ void ClinicalRecordTab::onStopCamera() {
     ctrl_->stopCamera(0);
 }
 
-void ClinicalRecordTab::onStartRecording() {
-    ctrl_->startRecording();
-}
-
-void ClinicalRecordTab::onStopRecording() {
-    ctrl_->stopRecording();
-}
-
 void ClinicalRecordTab::onRunAssessment() {
     if (ctrl_->patientId.empty()) {
         QMessageBox::warning(this, "Assessment", "Enter a Patient ID before running an assessment.");
@@ -597,6 +580,11 @@ void ClinicalRecordTab::onRunAssessment() {
     }
     ctrl_->loadProtocol(protocol);
     ctrl_->recordJoints = true;
+    // Recordings are started by the protocol's own events; name them after
+    // the patient so the Viewer lists them by ID.
+    QString base = QString::fromStdString(ctrl_->patientId).trimmed();
+    base.replace(QRegularExpression("[^A-Za-z0-9_-]+"), "_");
+    ctrl_->recordingFileName = base.isEmpty() ? "session" : base.toStdString();
     ctrl_->runProtocol();
     updateProtocolUI();
 }

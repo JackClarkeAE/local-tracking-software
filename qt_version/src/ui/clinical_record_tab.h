@@ -6,6 +6,7 @@ class SkeletonView;
 class PopoutWindow;
 class CameraFeedView;
 class QLineEdit;
+class QPlainTextEdit;
 class QPushButton;
 class QLabel;
 class QCheckBox;
@@ -19,9 +20,10 @@ class QFrame;
 // A reduced version of the research Live tab for use in clinic. It keeps the
 // same two views — the patient-facing screen and the clinician's view — and
 // the same controller, but exposes only what a session needs: who the
-// patient is, which camera to use, which assessment protocol to run, and
-// start/stop for the camera and the recording. Camera tuning, dual-camera,
-// overlays, smoothing and biofeedback stay in the research UI.
+// patient is, which camera to use and which assessment protocol to run.
+// Recording is driven by the protocol's own events and named after the
+// patient. Camera tuning, dual-camera, overlays, smoothing and biofeedback
+// stay in the research UI.
 class ClinicalRecordTab : public QWidget {
     Q_OBJECT
 public:
@@ -34,8 +36,6 @@ private slots:
     void onCameraSelectionChanged();
     void onStartCamera();
     void onStopCamera();
-    void onStartRecording();
-    void onStopRecording();
     void onRunAssessment();
     void onStopAssessment();
     void onPopOut();
@@ -71,7 +71,7 @@ private:
     // Patient
     QLineEdit* patientIdEdit_ = nullptr;
     QLineEdit* clinicianEdit_ = nullptr;
-    QLineEdit* notesEdit_ = nullptr;
+    QPlainTextEdit* notesEdit_ = nullptr;
 
     // Camera
     QComboBox* cameraCategoryCombo_ = nullptr;
@@ -92,12 +92,6 @@ private:
     QLabel* currentEventLabel_ = nullptr;
     QLabel* nextEventLabel_ = nullptr;
     QLabel* countdownLabel_ = nullptr;
-
-    // Recording
-    QLineEdit* fileNameEdit_ = nullptr;
-    QCheckBox* recordVideoCb_ = nullptr;
-    QPushButton* startRecBtn_ = nullptr;
-    QPushButton* stopRecBtn_ = nullptr;
 
     // Patient screen
     QCheckBox* patientScreenCb_ = nullptr;

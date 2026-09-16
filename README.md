@@ -103,7 +103,7 @@ panels, deep teal accent, red for recording).
 
 | Tab | Purpose |
 |---|---|
-| **Record** | Patient ID / clinician / notes, camera type + device, one-click *Run Assessment* (loads and runs a protocol), Start/Stop camera and recording, patient screen on a second display. Joint recording is always on. |
+| **Record** | Camera type + device, one-click *Run Assessment* (loads and runs a protocol), patient ID / clinician / notes, patient screen on a second display. Recording is driven by the protocol's own events and files are named after the Patient ID. |
 | **Viewer** | The upstream playback tab: load and review recorded sessions. |
 
 Everything else (camera tuning, second camera, overlays, smoothing,

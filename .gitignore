@@ -3,6 +3,7 @@ build/
 build_*/
 qt_version/build/
 qt_version/build_*/
+qt_version/build-*/
 analyzer_qt/build/
 analyzer_qt/build_*/
 

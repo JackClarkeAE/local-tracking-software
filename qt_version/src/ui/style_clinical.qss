@@ -449,13 +449,17 @@ QCheckBox::indicator:checked:hover {
     background-color: #00849b;
 }
 
+/* Indicator sizes are the content box; borders add to it. Keep the outer
+   size at 18px in every state so the radius (9px) always yields a circle. */
 QRadioButton::indicator {
-    border-radius: 8px;
+    border-radius: 9px;
 }
 
 QRadioButton::indicator:checked {
+    width: 10px;
+    height: 10px;
     background-color: #ffffff;
-    border: 5px solid #006e82;
+    border: 4px solid #006e82;
 }
 
 QCheckBox::indicator:disabled,
