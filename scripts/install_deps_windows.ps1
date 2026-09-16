@@ -1,4 +1,4 @@
-# Install build dependencies for Local Tracking Software (Qt) on Windows.
+# Install build dependencies for York Clinical Tracking Suite (YCTS, Qt) on Windows.
 # Run from an elevated PowerShell:  powershell -ExecutionPolicy Bypass -File scripts\install_deps_windows.ps1
 #
 # Installs: CMake, Ninja, Qt 6 (via aqtinstall). Visual Studio Build Tools and

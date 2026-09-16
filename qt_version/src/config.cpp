@@ -84,7 +84,7 @@ std::string getDefaultDataRoot() {
     // Installed build: the user's Documents folder.
     QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
     if (docs.isEmpty()) docs = QDir::homePath();
-    const QString root = QDir(docs).filePath("Local Tracking Software");
+    const QString root = QDir(docs).filePath("York Clinical Tracking Suite");
     QDir().mkpath(root);
     return root.toStdString();
 }

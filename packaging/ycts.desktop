@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=York Clinical Tracking Suite
+Comment=Clinical body-tracking capture suite (YCTS)
+Exec=YCTS_Qt
+Icon=localtracking
+Categories=Science;MedicalSoftware;
+Terminal=false

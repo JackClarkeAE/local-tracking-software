@@ -12,7 +12,7 @@
 
 MainWindow::MainWindow(AppController* ctrl, QWidget* parent)
     : QMainWindow(parent), ctrl_(ctrl) {
-    setWindowTitle("Local Tracking Software (Qt)");
+    setWindowTitle("York Clinical Tracking Suite (YCTS)");
     resize(1400, 800);
     setMinimumSize(1000, 600);
     setProperty("dsAppShell", true);

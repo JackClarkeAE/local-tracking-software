@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install build dependencies for Local Tracking Software (Qt) on Ubuntu 22.04+.
+# Install build dependencies for York Clinical Tracking Suite (YCTS, Qt) on Ubuntu 22.04+.
 #
 # Base toolchain + Qt are installed automatically. The camera SDKs are
 # optional — the build auto-detects them and falls back to playback-only mode.

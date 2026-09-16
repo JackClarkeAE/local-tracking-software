@@ -1,9 +1,15 @@
-# Local Tracking Software
+# York Clinical Tracking Suite (YCTS)
 
 Clinical body-tracking suite for movement research using Azure Kinect
 and ZED 2i depth cameras, or any standard RGB webcam via drop-in pose models.
 Records skeletal joint data during protocol-driven sessions with optional
 real-time biofeedback.
+
+> **About this fork:** YCTS is a fork of
+> [Local Tracking Software](https://github.com/JackClarkeAE/local-tracking-software)
+> maintained as a separate product with its own name, identifiers, data
+> folder and installer. It shares the same codebase and license terms as
+> upstream; see [Fork notes](#fork-notes) for what differs.
 
 > **Licensing:** free for personal, non-commercial, and research use under
 > [CC BY-NC-SA 4.0](LICENSE). Commercial use is assessed case-by-case — see
@@ -11,15 +17,14 @@ real-time biofeedback.
 
 ## Downloads
 
-Prebuilt installers are published on the
-[Releases page](https://github.com/JackClarkeAE/local-tracking-software/releases/latest).
+Prebuilt installers are published on the Releases page of this repository.
 
 | Download | Platform | Type |
 |---|---|---|
-| `LocalTrackingSoftware-*-win64.exe` | Windows 10/11 (x64) | Installer (recommended) |
-| `LocalTrackingSoftware-*-win64.zip` | Windows 10/11 (x64) | Portable (unzip and run) |
-| `LocalTrackingSoftware-*-Darwin.dmg` | macOS (Apple Silicon) | Disk image |
-| `Local_Tracking_Software-*.AppImage` | Linux (x86-64) | Portable, runs on any distro |
+| `YCTS-*-win64.exe` | Windows 10/11 (x64) | Installer (recommended) |
+| `YCTS-*-win64.zip` | Windows 10/11 (x64) | Portable (unzip and run) |
+| `YCTS-*-Darwin.dmg` | macOS (Apple Silicon) | Disk image |
+| `York_Clinical_Tracking_Suite-*.AppImage` | Linux (x86-64) | Portable, runs on any distro |
 
 **Every download works out of the box for RGB-camera tracking, playback,
 protocols and analysis — no extra install needed** — and ships with a bundled
@@ -67,6 +72,29 @@ Bundled third-party components keep their own licenses (Qt 6 — LGPL v3;
 ONNX Runtime — MIT; MoveNet — Apache 2.0). Full terms in [`LICENSE`](LICENSE).
 
 This is a research tool and is **not a certified medical device**.
+
+## Fork notes
+
+YCTS diverges from upstream Local Tracking Software only in identity so far;
+the tracking, recording, protocol and analysis code is unchanged. What is
+different:
+
+| Item | Upstream | YCTS |
+|---|---|---|
+| Executable / CMake target | `LocalTrackingSoftware_Qt` | `YCTS_Qt` |
+| Window title / app name | Local Tracking Software (Qt) | York Clinical Tracking Suite (YCTS) |
+| Qt organisation name | `LocalTracking` | `YCTS` |
+| Installed data folder (Documents) | `Local Tracking Software/` | `York Clinical Tracking Suite/` |
+| macOS bundle identifier | `com.localtracking.capture` | `org.ycts.capture` |
+| Installer / package name | `LocalTrackingSoftware` | `YCTS` |
+| Linux desktop entry | `packaging/localtracking.desktop` | `packaging/ycts.desktop` (icon file unchanged) |
+
+Because the data folder and organisation name differ, YCTS installs alongside
+an existing Local Tracking Software install without touching its config or
+recordings. Copy `config.ini` and the `recordings/` folder across manually if
+you want to migrate.
+
+Functional changes specific to YCTS will be listed here as they land.
 
 ## Repository layout
 

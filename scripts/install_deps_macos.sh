@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install build dependencies for Local Tracking Software (Qt) on macOS.
+# Install build dependencies for York Clinical Tracking Suite (YCTS, Qt) on macOS.
 # Camera capture is not available on macOS (no vendor SDKs) — macOS builds
 # run in playback/analysis mode.
 set -euo pipefail

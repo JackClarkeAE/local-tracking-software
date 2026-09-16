@@ -414,7 +414,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     register_parser = sub.add_parser("register", help="Attempt dynamic OAuth client registration")
     add_common_args(register_parser)
-    register_parser.add_argument("--client-name", default="Local Tracking Software Probe")
+    register_parser.add_argument("--client-name", default="York Clinical Tracking Suite Probe")
     register_parser.add_argument("--redirect-uri", default="http://127.0.0.1:8765/callback")
     register_parser.add_argument("--scope", default=DEFAULT_SCOPE)
     register_parser.add_argument("--application-type", default="private", choices=("private", "public"))

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(LocalTrackingSoftware_Qt VERSION 1.0.0 LANGUAGES CXX)
+project(YCTS_Qt VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -278,8 +278,8 @@ add_executable(${PROJECT_NAME} ${APP_SOURCES} ${APP_HEADERS} ${APP_ICON_SOURCES}
 set_target_properties(${PROJECT_NAME} PROPERTIES
     WIN32_EXECUTABLE TRUE
     MACOSX_BUNDLE TRUE
-    MACOSX_BUNDLE_BUNDLE_NAME "Local Tracking Software"
-    MACOSX_BUNDLE_GUI_IDENTIFIER "com.localtracking.capture"
+    MACOSX_BUNDLE_BUNDLE_NAME "York Clinical Tracking Suite"
+    MACOSX_BUNDLE_GUI_IDENTIFIER "org.ycts.capture"
     MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
     MACOSX_BUNDLE_ICON_FILE "icon.icns"
@@ -494,24 +494,24 @@ else()
 endif()
 
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../protocols"
-        DESTINATION ${CMAKE_INSTALL_DATADIR}/localtracking
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/ycts
         OPTIONAL)
 
 # =============================================================================
 # CPack — produces the per-platform installer / archive
 #   Windows: NSIS installer (+ ZIP)   |  macOS: DMG  |  Linux: DEB + TGZ
 # =============================================================================
-set(CPACK_PACKAGE_NAME "LocalTrackingSoftware")
-set(CPACK_PACKAGE_VENDOR "LocalTracking")
+set(CPACK_PACKAGE_NAME "YCTS")
+set(CPACK_PACKAGE_VENDOR "YCTS")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Clinical body-tracking capture suite (Qt)")
-set(CPACK_PACKAGE_INSTALL_DIRECTORY "Local Tracking Software")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "York Clinical Tracking Suite")
 
 if(WIN32)
     set(CPACK_GENERATOR "ZIP;NSIS")
-    set(CPACK_NSIS_DISPLAY_NAME "Local Tracking Software")
+    set(CPACK_NSIS_DISPLAY_NAME "York Clinical Tracking Suite")
     set(CPACK_NSIS_EXECUTABLES_DIRECTORY ".")
-    set(CPACK_PACKAGE_EXECUTABLES "${PROJECT_NAME};Local Tracking Software")
+    set(CPACK_PACKAGE_EXECUTABLES "${PROJECT_NAME};York Clinical Tracking Suite")
     # Start-menu + desktop shortcuts (the installer offers the desktop one)
     set(CPACK_CREATE_DESKTOP_LINKS "${PROJECT_NAME}")
     set(CPACK_NSIS_MODIFY_PATH OFF)
@@ -524,7 +524,7 @@ elseif(APPLE)
     set(CPACK_GENERATOR "DragNDrop")
 else()
     set(CPACK_GENERATOR "TGZ;DEB")
-    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "LocalTracking")
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "YCTS")
     # shlibdeps fails when Qt comes from aqtinstall rather than apt, so
     # declare the runtime dependencies explicitly
     set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)

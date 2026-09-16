@@ -15,8 +15,8 @@ int main(int argc, char* argv[]) {
 #endif
 
     QApplication app(argc, argv);
-    app.setApplicationName("Local Tracking Software (Qt)");
-    app.setOrganizationName("LocalTracking");
+    app.setApplicationName("York Clinical Tracking Suite");
+    app.setOrganizationName("YCTS");
     app.setWindowIcon(QIcon(":/ui/app_icon.png"));
 
     DesignSystem::apply(app);

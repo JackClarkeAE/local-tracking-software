@@ -29,7 +29,7 @@
 	<key>NSHumanReadableCopyright</key>
 	<string>${MACOSX_BUNDLE_COPYRIGHT}</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Local Tracking Software uses the camera for live RGB video capture during tracking sessions.</string>
+	<string>York Clinical Tracking Suite uses the camera for live RGB video capture during tracking sessions.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 </dict>

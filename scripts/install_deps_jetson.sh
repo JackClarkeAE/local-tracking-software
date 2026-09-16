@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build dependencies for Local Tracking Software (Qt) on an NVIDIA Jetson
+# Build dependencies for York Clinical Tracking Suite (YCTS, Qt) on an NVIDIA Jetson
 # running JetPack 6 (Ubuntu 22.04, aarch64 / L4T).
 #
 # Why this is separate from install_deps_linux.sh:

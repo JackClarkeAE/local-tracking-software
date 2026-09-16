@@ -1,4 +1,5 @@
-Local Tracking Software
+York Clinical Tracking Suite (YCTS)
+A fork of Local Tracking Software
 Copyright (c) 2026 Jack Clarke
 
 ================================================================================
@@ -12,9 +13,10 @@ Attribution-NonCommercial-ShareAlike 4.0 International License.
 You are free to use, copy, share, and adapt this software for PERSONAL,
 NON-COMMERCIAL, and ACADEMIC / RESEARCH purposes, subject to these terms:
 
-  Attribution  — You must give appropriate credit ("Local Tracking Software,
-                 Jack Clarke"), provide a link to this license, and indicate
-                 if changes were made.
+  Attribution  — You must give appropriate credit ("York Clinical Tracking
+                 Suite, a fork of Local Tracking Software, Jack Clarke"),
+                 provide a link to this license, and indicate if changes were
+                 made.
 
   NonCommercial — You may not use the material for commercial purposes without
                  a separate commercial licence (see below).
