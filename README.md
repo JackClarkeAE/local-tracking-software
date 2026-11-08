@@ -76,7 +76,7 @@ This is a research tool and is **not a certified medical device**.
 | `RGB_Models/` | Drop-in ONNX pose models (MoveNet bundled) + manifest template |
 | `protocols/` | Protocol definitions (JSON timed-event sequences) |
 | `scripts/` | Per-platform dependency install scripts |
-| `tools/` | OpenEMR FHIR integration probe (planning stage) |
+| `tools/` | OpenEMR FHIR integration probe (planning stage); synthetic gait session generator for biofeedback development |
 | `packaging/` | Desktop entry + icon for Linux AppImage packaging |
 
 Recorded session data (`recordings/`) is **not** tracked in git.

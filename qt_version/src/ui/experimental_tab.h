@@ -24,6 +24,7 @@ signals:
     void legacyPlaybackToggled(bool enabled);
     void resampledPlaybackToggled(bool enabled);
     void reportTabToggled(bool enabled);
+    void biofeedbackDevTabToggled(bool enabled);
 
 private slots:
     void onBinaryExportToggled(bool checked);
@@ -39,6 +40,7 @@ private:
     QCheckBox* legacyPlaybackCb_ = nullptr;
     QCheckBox* resampledPlaybackCb_ = nullptr;
     QCheckBox* reportTabCb_ = nullptr;
+    QCheckBox* bfDevTabCb_ = nullptr;
     QLabel* binaryStatusLabel_ = nullptr;
     QLabel* binaryPathLabel_ = nullptr;
     QTimer* writeTimer_ = nullptr;

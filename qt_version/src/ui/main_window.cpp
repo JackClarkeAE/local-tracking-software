@@ -5,6 +5,7 @@
 #include "data_tab.h"
 #include "experimental_tab.h"
 #include "report_tab.h"
+#include "biofeedback_dev_tab.h"
 #include "info_tab.h"
 #include "../app_controller.h"
 
@@ -62,6 +63,22 @@ MainWindow::MainWindow(AppController* ctrl, QWidget* parent)
             if (idx >= 0) tabs_->removeTab(idx);
             delete reportTab_;
             reportTab_ = nullptr;
+        }
+    });
+
+    // Experimental: the Biofeedback Development tab is added/removed the same way
+    connect(experimentalTab_, &ExperimentalTab::biofeedbackDevTabToggled, this,
+            [this](bool enabled) {
+        if (enabled && !bfDevTab_) {
+            bfDevTab_ = new BiofeedbackDevTab(ctrl_);
+            const int idx = tabs_->indexOf(experimentalTab_);
+            tabs_->insertTab(idx, bfDevTab_, "Biofeedback Dev");
+            tabs_->setCurrentWidget(bfDevTab_);
+        } else if (!enabled && bfDevTab_) {
+            const int idx = tabs_->indexOf(bfDevTab_);
+            if (idx >= 0) tabs_->removeTab(idx);
+            delete bfDevTab_;
+            bfDevTab_ = nullptr;
         }
     });
 }

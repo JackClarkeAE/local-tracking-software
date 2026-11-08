@@ -10,6 +10,7 @@ class ProtocolEditorTab;
 class DataTab;
 class ExperimentalTab;
 class ReportTab;
+class BiofeedbackDevTab;
 class InfoTab;
 
 class MainWindow : public QMainWindow {
@@ -32,5 +33,6 @@ private:
     DataTab* dataTab_;
     ExperimentalTab* experimentalTab_;
     ReportTab* reportTab_ = nullptr;
+    BiofeedbackDevTab* bfDevTab_ = nullptr;
     InfoTab* infoTab_;
 };

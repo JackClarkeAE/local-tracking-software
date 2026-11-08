@@ -181,6 +181,9 @@ set(APP_SOURCES
     src/ui/info_tab.cpp
     src/ui/experimental_tab.cpp
     src/ui/report_tab.cpp
+    src/ui/biofeedback_dev_tab.cpp
+    src/ui/biofeedback_dev_view.cpp
+    src/ui/biofeedback_timeline.cpp
     src/ui/data_tab.cpp
     src/ui/protocol_editor_tab.cpp
     src/ui/live_tab.cpp
@@ -215,6 +218,7 @@ set(APP_SOURCES
     # Backend — biofeedback
     src/biofeedback/biofeedback_engine.cpp
     src/biofeedback/biofeedback_recorder.cpp
+    src/biofeedback/anatomical_engine.cpp
 
     # Backend - game
     src/game/block_game.cpp
@@ -229,6 +233,9 @@ set(APP_HEADERS
     src/ui/info_tab.h
     src/ui/experimental_tab.h
     src/ui/report_tab.h
+    src/ui/biofeedback_dev_tab.h
+    src/ui/biofeedback_dev_view.h
+    src/ui/biofeedback_timeline.h
     src/ui/data_tab.h
     src/ui/protocol_editor_tab.h
     src/ui/live_tab.h
@@ -257,6 +264,8 @@ set(APP_HEADERS
     src/data/data_exporter.h
     src/biofeedback/biofeedback_engine.h
     src/biofeedback/biofeedback_recorder.h
+    src/biofeedback/anatomical_engine.h
+    src/biofeedback/bf_math.h
     src/game/block_game.h
 )
 
@@ -376,6 +385,14 @@ add_test(NAME qt_parity_tests COMMAND qt_parity_tests)
 set_tests_properties(qt_parity_tests PROPERTIES
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
+
+# Pure C++ tests for the experimental anatomical biofeedback engine (no Qt)
+add_executable(anatomical_engine_tests
+    tests/anatomical_engine_tests.cpp
+    src/biofeedback/anatomical_engine.cpp
+)
+target_include_directories(anatomical_engine_tests PRIVATE src)
+add_test(NAME anatomical_engine_tests COMMAND anatomical_engine_tests)
 
 # =============================================================================
 # Local Qt DLL deployment (Windows) for running straight from the build tree

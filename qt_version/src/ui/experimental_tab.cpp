@@ -124,6 +124,26 @@ ExperimentalTab::ExperimentalTab(AppController* ctrl, QWidget* parent)
     reportLayout->addWidget(ankleNote);
     layout->addWidget(reportGroup);
 
+    // === Biofeedback Development ===
+    auto* bfDevGroup = new QGroupBox("Biofeedback Development");
+    bfDevGroup->setStyleSheet("QGroupBox { color: #e0a030; font-weight: bold; }");
+    auto* bfDevLayout = new QVBoxLayout(bfDevGroup);
+    bfDevTabCb_ = new QCheckBox("Enable Biofeedback Development Tab");
+    bfDevTabCb_->setToolTip("Adds a 'Biofeedback Dev' tab that replays a recorded session through\n"
+                            "a biofeedback engine: original vs modified 3D views, a timeline of\n"
+                            "joint angles, and per-limb gain controls. Offline only — it does not\n"
+                            "change what the live patient screen shows.");
+    connect(bfDevTabCb_, &QCheckBox::toggled, this, &ExperimentalTab::biofeedbackDevTabToggled);
+    bfDevLayout->addWidget(bfDevTabCb_);
+    auto* bfDevNote = new QLabel(
+        "Tune limb scaling on recorded sessions. Compares the new anatomical engine (signed "
+        "sagittal angles about a calibrated neutral, step-length mode with two-bone IK) against "
+        "the current live engine and against recorded biofeedback avatars.");
+    bfDevNote->setWordWrap(true);
+    bfDevNote->setStyleSheet("color:#9aa3ad; font-size:11px;");
+    bfDevLayout->addWidget(bfDevNote);
+    layout->addWidget(bfDevGroup);
+
     // === Block Dodge Game ===
     auto* gameGroup = new QGroupBox("Block Dodge Game");
     gameGroup->setStyleSheet("QGroupBox { color: #e0a030; font-weight: bold; }");
