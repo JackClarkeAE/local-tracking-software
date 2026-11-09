@@ -205,6 +205,12 @@ void AppController::togglePause() {
 }
 
 void AppController::startCamera(int slotIndex) {
+    if (slotIndex == 0) {
+        liveProcessor_.reset();
+        liveProcessor_.setOptions(liveOptionsForCamera());
+        liveBodyKnown_ = false;
+        lastRawFrame_.reset();
+    }
     if (slotIndex < 0 || slotIndex >= MAX_CAMERAS) return;
     auto& slot = slots_[slotIndex];
     if (slot.camera && slot.camera->isOpen()) return;
@@ -598,6 +604,159 @@ void AppController::applySmoothingToFrame(FrameData& frame, int slotIndex) {
     }
 }
 
+// =============================================================================
+// Live biofeedback processing
+// =============================================================================
+
+void AppController::setUseAnatomicalBiofeedback(bool on) {
+    if (on == useAnatomical_) return;
+    useAnatomical_ = on;
+    liveProcessor_.reset();
+    liveProcessor_.setOptions(liveOptionsForCamera());
+    lastRawFrame_.reset();  // reprocess the current frame with the new engine
+}
+
+void AppController::setAnatomicalProfile(const anat::Settings& settings, const anat::LiveProcessor::Options& options) {
+    anatomicalProfile_ = settings;
+    anatomicalOptions_ = options;
+    liveProcessor_.setOptions(liveOptionsForCamera());
+}
+
+anat::LiveProcessor::Options AppController::liveOptionsForCamera() const {
+    anat::LiveProcessor::Options o = anatomicalOptions_;
+    // Handedness of the camera's coordinates fixes the forward axis up front
+    switch (cameraTypes_[0]) {
+        case CameraType::AzureKinect: o.forwardHint = 1; break;  // left-handed after the Y flip
+        case CameraType::ZED2i: o.forwardHint = -1; break;       // RIGHT_HANDED_Y_UP
+        case CameraType::RGBWebcam: o.forwardHint = 0; break;    // 2D: learned per frame
+    }
+    return o;
+}
+
+// Protocol "Set BF Transform" events (with their ramps) drive the gains; a
+// limb with a protocol transform is in joint-angle mode.
+void AppController::applyProtocolGains(anat::Settings& settings, float protoTime) const {
+    struct Map { int side; int joint; };  // joint: 0 hip, 1 knee, 2 ankle
+    static const Map map[] = {{0, 1}, {1, 1}, {0, 0}, {1, 0}, {0, 2}, {1, 2}};  // BiomechAngle order
+    static_assert(sizeof(map) / sizeof(map[0]) == (int)BiomechAngle::COUNT, "BiomechAngle mapping");
+    const auto& transforms = biofeedbackEngine_.transforms();
+    for (int i = 0; i < (int)BiomechAngle::COUNT; ++i) {
+        const BiofeedbackTransform& t = transforms[i];
+        if (!t.active) continue;
+        const float gain = biofeedbackEngine_.getScaleAtTime(t, protoTime);
+        anat::LimbSettings& limb = settings.limbs[map[i].side];
+        limb.enabled = true;
+        limb.mode = anat::LimbMode::JointAngles;
+        if (map[i].joint == 0) limb.hipGain = gain;
+        else if (map[i].joint == 1) limb.kneeGain = gain;
+        else limb.ankleGain = gain;
+    }
+}
+
+namespace {
+
+// Angle rows for the _biofeedback_angles.csv from the anatomical diagnostics
+std::vector<AngleMeasurement> anglesFromDiagnostics(const anat::BodyDiagnostics& d, const anat::Settings& s) {
+    static const BiomechAngle ids[2][3] = {
+        {BiomechAngle::LEFT_HIP_FLEXION, BiomechAngle::LEFT_KNEE_FLEXION, BiomechAngle::LEFT_ANKLE_DORSIFLEXION},
+        {BiomechAngle::RIGHT_HIP_FLEXION, BiomechAngle::RIGHT_KNEE_FLEXION, BiomechAngle::RIGHT_ANKLE_DORSIFLEXION}};
+    constexpr float toDeg = 57.29577951308232f;
+    std::vector<AngleMeasurement> out;
+    for (int side = 0; side < 2; ++side) {
+        const anat::LimbSettings& limb = s.limbs[side];
+        const anat::LimbDiagnostics& ld = d.limbs[side];
+        if (!limb.enabled || !ld.valid) continue;
+        const float in[3] = {ld.in.hip, ld.in.knee, ld.in.ankle};
+        const float mod[3] = {ld.out.hip, ld.out.knee, ld.out.ankle};
+        const float gain[3] = {limb.hipGain, limb.kneeGain, limb.ankleGain};
+        for (int j = 0; j < 3; ++j) {
+            if (j == 2 && (!ld.in.ankleValid || !ld.out.ankleValid)) continue;
+            AngleMeasurement m;
+            m.angle = ids[side][j];
+            m.rawDegrees = in[j] * toDeg;
+            m.modifiedDegrees = mod[j] * toDeg;
+            m.scaleFactor = limb.mode == anat::LimbMode::StepLength && j < 2 ? limb.stepGain : gain[j];
+            out.push_back(m);
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+void AppController::processLatestFrame() {
+    std::shared_ptr<FrameData> raw;
+    { std::lock_guard<std::mutex> lock(slots_[0].frameMutex); raw = slots_[0].sharedFrame; }
+    if (!raw) {
+        smoothedFrame_.reset();
+        patientFrame_.reset();
+        return;
+    }
+    if (raw == lastRawFrame_) return;  // this camera frame was already processed
+    lastRawFrame_ = raw;
+
+    auto smoothed = std::make_shared<FrameData>(*raw);
+    applySmoothingToFrame(*smoothed, 0);
+    smoothedFrame_ = smoothed;
+    patientFrame_ = smoothed;
+
+    const float protoTime = (protocolRunner_.state() == ProtocolRunnerState::Running)
+        ? protocolRunner_.currentTime() : debugInfo.sessionSeconds;
+    std::vector<AngleMeasurement> measurements;
+    bool modified = false;
+
+    if (useAnatomical_) {
+        // The processor sees every frame, so it has learned the floor and the
+        // forward axis by the time biofeedback starts; it only modifies while
+        // biofeedback is active.
+        anat::Settings s = anatomicalProfile_;
+        if (biofeedbackActive_) applyProtocolGains(s, protoTime);
+        else for (auto& limb : s.limbs) limb.enabled = false;
+
+        FrameData out = *smoothed;
+        TrackedBody* body = nullptr;
+        for (auto& b : out.bodies)
+            if (liveBodyKnown_ && b.id == liveBodyId_) body = &b;
+        if (!body && !out.bodies.empty()) body = &out.bodies.front();
+        if (body) {
+            liveBodyId_ = body->id;
+            liveBodyKnown_ = true;
+            const double t = std::chrono::duration<double>(std::chrono::steady_clock::now() - liveClockStart_).count();
+            anat::BodyDiagnostics d;
+            *body = liveProcessor_.process(*body, t, s, &d);
+            if (biofeedbackActive_ && (s.limbs[0].enabled || s.limbs[1].enabled)) {
+                patientFrame_ = std::make_shared<FrameData>(std::move(out));
+                measurements = anglesFromDiagnostics(d, s);
+                modified = true;
+            }
+        }
+    } else if (biofeedbackActive_ && biofeedbackEngine_.hasActiveTransforms()) {
+        patientFrame_ = std::make_shared<FrameData>(biofeedbackEngine_.applyTransforms(*smoothed, protoTime));
+        measurements = biofeedbackEngine_.lastMeasurements();
+        modified = true;
+    }
+
+    if (modified && biofeedbackRecorder_.isRecording()) {
+        const double sessionSecs = std::chrono::duration<double>(std::chrono::steady_clock::now() - sessionStart).count();
+        biofeedbackRecorder_.recordFrame(*patientFrame_, measurements, sessionSecs);
+    }
+}
+
+bool AppController::captureLiveNeutral() {
+    const TrackedBody& b = liveProcessor_.lastInput();
+    anat::Settings s = anatomicalProfile_;
+    s.forwardSign = liveProcessor_.status().forwardSign;
+    if (liveProcessor_.status().floor.valid) s.floorUp = liveProcessor_.status().floor.up;
+    const anat::BodyAxes ax = anat::computeAxes(b, s);
+    bool any = false;
+    for (int side = 0; side < 2; ++side)
+        any = any || anat::measureLeg(b, (anat::Side)side, ax, s.minConfidence).valid;
+    if (!any) return false;
+    anat::captureNeutral(b, s);
+    anatomicalProfile_.neutral = s.neutral;
+    return true;
+}
+
 void AppController::executeProtocolAction(const ProtocolAction& action) {
     switch (action.type) {
         case ProtocolEventType::StartCamera:
@@ -879,19 +1038,10 @@ void AppController::onTick() {
         }
     }
 
-    // Biofeedback recording: if active, apply transforms and record
-    if (biofeedbackActive_ && biofeedbackEngine_.hasActiveTransforms() && biofeedbackRecorder_.isRecording()) {
-        std::shared_ptr<FrameData> framePtr;
-        { std::lock_guard<std::mutex> lock(slots_[0].frameMutex); framePtr = slots_[0].sharedFrame; }
-        if (framePtr && !framePtr->bodies.empty()) {
-            float protoTime = (protocolRunner_.state() == ProtocolRunnerState::Running)
-                ? protocolRunner_.currentTime() : debugInfo.sessionSeconds;
-            FrameData modified = biofeedbackEngine_.applyTransforms(*framePtr, protoTime);
-            auto sessionElapsed = std::chrono::steady_clock::now() - sessionStart;
-            double sessionSecs = std::chrono::duration<double>(sessionElapsed).count();
-            biofeedbackRecorder_.recordFrame(modified, biofeedbackEngine_.lastMeasurements(), sessionSecs);
-        }
-    }
+    // Smoothing + biofeedback for the newest camera frame (also records the
+    // biofeedback avatar). The Live tab calls this too; each frame is only
+    // processed once, whichever gets there first.
+    processLatestFrame();
 
     // Signal frame-ready for both slots so UI tabs can refresh
     for (int i = 0; i < MAX_CAMERAS; ++i) {

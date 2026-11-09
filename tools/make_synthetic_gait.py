@@ -167,6 +167,9 @@ def main():
     ap.add_argument("--stand", type=float, default=2.0, help="seconds of quiet standing at the start")
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--tilt", type=float, default=0.0, help="camera pitched down by this many degrees (3D only)")
+    ap.add_argument("--away", type=float, nargs=2, metavar=("FROM", "TO"),
+                    help="3D: subject faces AWAY from the camera between these times and the tracker "
+                         "swaps left/right labels, as Azure Kinect does")
     ap.add_argument("--turn-every", type=float, default=0.0,
                     help="rgb: reverse walking direction every N seconds (subject walks back and forth)")
     args = ap.parse_args()
@@ -187,9 +190,18 @@ def main():
             frame_args.amplitude = args.amplitude * min(1.0, walk_t / 1.0)
             joints = frame_joints(walk_t, frame_args)
             for j in range(len(JOINT_NAMES)):
-                jp = joints[j]
+                away = args.away is not None and args.away[0] <= t < args.away[1] and args.camera != "rgb"
+                src = j
+                if away:
+                    # a facing-the-camera tracker labels the subject's right side "left"
+                    name = JOINT_NAMES[j]
+                    if name.endswith("_LEFT"): src = J[name[:-5] + "_RIGHT"]
+                    elif name.endswith("_RIGHT"): src = J[name[:-6] + "_LEFT"]
+                jp = joints[src]
                 if args.camera == "rgb" and args.turn_every > 0 and int(walk_t / args.turn_every) % 2 == 1:
                     jp = (-jp[0], jp[1], -jp[2])  # facing the other way in the image
+                if away:
+                    jp = (-jp[0], jp[1], -jp[2])  # turned round: right is left, forward is back
                 p = to_camera(jp, args.camera, 0.85, 2.6, start_ant, args.tilt)
                 if args.camera == "rgb":
                     p = (p[0] + rng.gauss(0, args.noise), p[1] + rng.gauss(0, args.noise), 0.0)

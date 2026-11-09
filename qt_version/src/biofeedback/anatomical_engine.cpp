@@ -169,19 +169,20 @@ float legSpan(float L1, float L2, float k) {
     return std::sqrt(std::max(0.0f, L1 * L1 + L2 * L2 + 2.0f * L1 * L2 * std::cos(k)));
 }
 
-// Two-bone IK, driven from the MEASURED knee angle. Near full extension the
-// knee angle is hypersensitive to the hip-ankle distance, so deriving the knee
-// from raw (noisy) joint positions turns a few mm of tracking jitter into
-// ±10° of knee flicker. Instead the knee starts from its measured angle and
-// only changes by what the change in hip-ankle distance requires; the noise
-// is common to both distances and cancels. The ankle lands on the line from
-// the hip to `target`, within the input's own jitter of the target.
-//
-// The knee bends toward the thigh's anatomical anterior axis (never toward
-// the noisy offset of a straight knee from the hip-ankle line), or away from
-// it if the input was clearly hyperextended. The foot keeps its orientation
-// in the world: IK is only used where the foot should stay planted, so the
-// ankle angle absorbs the change, as in a real longer stride.
+// Step-mode leg solve, in ANGLE space: find hip and knee flexion — each a
+// rotation about that joint's own anatomical axis, exactly as in joint-angle
+// mode — that put the ankle at the target's forward/back and up/down position
+// in the body's sagittal plane. Abduction and rotation are untouched, so the
+// leg never leaves its own planes (a positional two-bone IK pinning the
+// ankle's sideways position has to tilt a bent leg sideways instead); the
+// ankle's sideways position follows from the flexion. Newton's method from
+// the person's own angles: the noise in the input is common to the input and
+// the target, so near full extension (where the knee angle is hypersensitive
+// to the hip-ankle distance) the knee still moves smoothly. If the target is
+// out of reach the height is matched first, so the foot stays on the floor and
+// the step falls short. The knee never goes straighter than kMinIkKnee (or
+// the input, if it was straighter) nor past its range. The foot keeps its
+// world orientation: a planted foot doesn't rotate.
 struct IkInput {
     float knee = 0.0f;      // measured (signed) knee angle of the input pose
     float rawSpan = 0.0f;   // input hip-ankle distance
@@ -200,33 +201,81 @@ float rawReach(const IkInput& ik, float L1, float L2) {
 
 void solveLegIK(TrackedBody& b, Side side, const Vec3& target, const BodyAxes& axes, const IkInput& ik) {
     const LegJointIndices& L = kLegs[(int)side];
-    const Vec3 H = pos(b, L.hip), K = pos(b, L.knee), T = pos(b, L.ankle), F = pos(b, L.foot);
-    const float L1 = bf::length(K - H), L2 = bf::length(T - K);
-    if (L1 < 1e-3f || L2 < 1e-3f) return;
+    const Vec3 T0 = pos(b, L.ankle), F0 = pos(b, L.foot);
+    const JointPlane hp = jointPlane(b, side, LegJoint::Hip, axes);
+    const JointPlane kp = jointPlane(b, side, LegJoint::Knee, axes);
+    if (!hp.valid || !kp.valid) return;
+    float h = planeAngle(hp, pos(b, L.knee) - hp.centre);
+    float k = planeAngle(kp, T0 - kp.centre);
+    const float kLo = std::min(kMinIkKnee, ik.knee), kHi = kKneeRange.hi;
+    k = std::clamp(k, kLo, kHi);
 
-    Vec3 e;
-    if (!bf::tryNormalize(target - H, e)) return;
-    const float delta = bf::length(target - H) - ik.rawSpan;  // what the step asks for
-    const float span = std::clamp(legSpan(L1, L2, std::fabs(ik.knee)) + delta,
-                                  std::fabs(L1 - L2) + 1e-3f, modelSpanLimit(L1, L2, ik));
-    const bool hyper = ik.knee < -2.0f * kDegToRad;
+    auto ankleAt = [&](float hh, float kk) {
+        TrackedBody t = b;
+        setJointAngle(t, side, LegJoint::Hip, hh, axes);
+        setJointAngle(t, side, LegJoint::Knee, kk, axes);
+        return pos(t, L.ankle);
+    };
+    auto residual = [&](const Vec3& T, float& rAnt, float& rUp) {
+        rAnt = bf::dot(T - target, axes.ant);
+        rUp = bf::dot(T - target, axes.up);
+    };
 
-    // bend direction: the thigh's anterior axis, perpendicular to the hip-ankle line
-    Vec3 thighDir;
-    if (!bf::tryNormalize(K - H, thighDir)) thighDir = e;
-    const Vec3 thighAnt = segmentFrame(thighDir, axes.ml, axes.forwardSign).a;
-    Vec3 pole = bf::rejectFrom(thighAnt, e);
-    if (!bf::tryNormalize(pole, pole)) pole = bf::normalizeOr(bf::rejectFrom(axes.ant, e), Vec3(0, 0, 1));
-    if (hyper) pole = -pole;
+    // Damped least squares (Levenberg-Marquardt) with backtracking: a straight
+    // knee makes the Jacobian singular, where plain Newton leaps to a different
+    // solution (knee bent 50°+) for one frame. Damping keeps steps small there
+    // and a step is only taken if it reduces the error.
+    const float eps = 1e-3f, lambda2 = 1e-4f;
+    float r0, r1;
+    residual(ankleAt(h, k), r0, r1);
+    for (int it = 0; it < 15 && r0 * r0 + r1 * r1 > 1e-8f; ++it) {
+        float a0, a1, b0, b1;
+        residual(ankleAt(h + eps, k), a0, a1);
+        residual(ankleAt(h, k + eps), b0, b1);
+        const float J00 = (a0 - r0) / eps, J10 = (a1 - r1) / eps;  // d/dh
+        const float J01 = (b0 - r0) / eps, J11 = (b1 - r1) / eps;  // d/dk
+        // (J^T J + lambda^2 I) d = -J^T r
+        const float A00 = J00 * J00 + J10 * J10 + lambda2, A01 = J00 * J01 + J10 * J11;
+        const float A11 = J01 * J01 + J11 * J11 + lambda2;
+        const float g0 = -(J00 * r0 + J10 * r1), g1 = -(J01 * r0 + J11 * r1);
+        const float det = A00 * A11 - A01 * A01;
+        if (det < 1e-12f) break;
+        float dh = (g0 * A11 - g1 * A01) / det;
+        float dk = (g1 * A00 - g0 * A01) / det;
+        const float m = std::max(std::fabs(dh), std::fabs(dk));
+        if (m > 0.15f) { dh *= 0.15f / m; dk *= 0.15f / m; }
+        bool improved = false;
+        for (int bt = 0; bt < 6 && !improved; ++bt, dh *= 0.5f, dk *= 0.5f) {
+            const float nh = h + dh, nk = std::clamp(k + dk, kLo, kHi);
+            float n0, n1;
+            residual(ankleAt(nh, nk), n0, n1);
+            if (n0 * n0 + n1 * n1 < r0 * r0 + r1 * r1) {
+                h = nh;
+                k = nk;
+                r0 = n0;
+                r1 = n1;
+                improved = true;
+            }
+        }
+        if (!improved) break;
+    }
+    // Out of reach (or stuck at a knee limit): match the height with the hip alone
+    {
+        float r0, r1;
+        residual(ankleAt(h, k), r0, r1);
+        for (int it = 0; it < 8 && std::fabs(r1) > 5e-4f; ++it) {
+            float a0, a1;
+            residual(ankleAt(h + eps, k), a0, a1);
+            const float d = (a1 - r1) / eps;
+            if (std::fabs(d) < 1e-6f) break;
+            h += std::clamp(-r1 / d, -0.25f, 0.25f);
+            residual(ankleAt(h, k), r0, r1);
+        }
+    }
 
-    const float a = (L1 * L1 - L2 * L2 + span * span) / (2.0f * span);
-    const float h = std::sqrt(std::max(0.0f, L1 * L1 - a * a));
-    const Vec3 newK = H + e * a + pole * h;
-    const Vec3 newT = H + e * span;
-
-    setPos(b, L.knee, newK);
-    setPos(b, L.ankle, newT);
-    setPos(b, L.foot, newT + (F - T));
+    setJointAngle(b, side, LegJoint::Hip, h, axes);
+    setJointAngle(b, side, LegJoint::Knee, k, axes);
+    setPos(b, L.foot, pos(b, L.ankle) + (F0 - T0));
 }
 
 // If a scaled step is out of reach, shorten only its forward/back component so
@@ -263,6 +312,97 @@ Vec3 floorUpOf(const Settings& s) {
 }
 
 float gainOrOne(bool enabled, float gain) { return enabled ? gain : 1.0f; }
+
+// Lowest tracked point of one leg's foot (ankle / foot joint) along `up`
+bool footLow(const TrackedBody& b, const LegJointIndices& L, float minConf, const Vec3& up, float& h) {
+    bool any = false;
+    for (int j : {L.ankle, L.foot}) {
+        if (!tracked(b, j, minConf)) continue;
+        const float v = bf::dot(pos(b, j), up);
+        if (!any || v < h) h = v;
+        any = true;
+    }
+    return any;
+}
+
+// Keeps the stance foot where it landed by moving the whole output body
+// horizontally (perpendicular to `up`). Called with the output after all
+// other corrections; returns the planted side (-1: none). With planting off
+// any remaining offset eases back to zero at 1 m/s.
+int plantStanceFoot(const TrackedBody& in, TrackedBody& out, const Settings& settings, const Vec3& up,
+                    TemporalState& st, double time) {
+    const float c = settings.minConfidence;
+    const float dt = st.valid ? (float)std::max(0.0, time - st.time) : 0.0f;
+
+    // Is the person standing still? (input pelvis horizontal speed)
+    const int pelvis = (int)CanonicalJoint::PELVIS;
+    bool still = false;
+    if (tracked(in, pelvis, c)) {
+        const Vec3 p = pos(in, pelvis);
+        if (st.havePelvis && dt > 0.0f) still = bf::length(bf::rejectFrom(p - st.lastPelvis, up)) / dt < 0.15f;
+        st.lastPelvis = p;
+        st.havePelvis = true;
+    }
+    st.stillTime = still ? st.stillTime + dt : 0.0f;
+
+    int stance = -1;
+    if (settings.plantStanceFoot) {
+        // The stance foot is the one the PERSON stands on: low AND still in
+        // the input (the modified pose can't say — scaling changes which foot
+        // is lower). Height alone switches a frame or two early, while the
+        // landing foot is still moving, which would drag the avatar with it.
+        float h[2] = {0, 0}, speed[2] = {0, 0};
+        bool ok[2] = {false, false};
+        for (int s = 0; s < 2; ++s) {
+            const LegJointIndices& L = kLegs[s];
+            ok[s] = footLow(in, L, c, up, h[s]);
+            const int j = tracked(in, L.ankle, c) ? L.ankle : L.foot;
+            if (!ok[s]) { st.lastFootValid[s] = false; continue; }
+            const Vec3 p = bf::rejectFrom(pos(in, j), up);
+            speed[s] = (st.lastFootValid[s] && dt > 0.0f) ? bf::length(p - st.lastFoot[s]) / dt : 0.0f;
+            st.lastFoot[s] = p;
+            st.lastFootValid[s] = true;
+        }
+        if (ok[0] && ok[1]) {
+            const float hmin = std::min(h[0], h[1]);
+            float cost[2];
+            for (int s = 0; s < 2; ++s) cost[s] = (h[s] - hmin) / 0.02f + speed[s] / 0.3f;
+            stance = cost[0] <= cost[1] ? 0 : 1;
+            // hysteresis: keep the planted foot unless the other is clearly the better contact
+            if (st.stanceSide >= 0 && stance != st.stanceSide && cost[st.stanceSide] - cost[stance] < 0.5f)
+                stance = st.stanceSide;
+        } else if (ok[0] || ok[1]) {
+            stance = ok[0] ? 0 : 1;
+        }
+        if (stance >= 0) {
+            const LegJointIndices& L = kLegs[stance];
+            const int j = tracked(out, L.ankle, c) ? L.ankle : L.foot;
+            const Vec3 contact = bf::rejectFrom(pos(out, j), up);
+            if (!st.plantValid || stance != st.stanceSide) {
+                // new contact: plant where the foot is now (with the current offset)
+                st.plantPoint = contact + st.rootOffset;
+                st.plantValid = true;
+                st.stanceSide = stance;
+            }
+            Vec3 offset = st.plantPoint - contact;
+            // standing still: drift back toward the person
+            if (st.stillTime > 0.5f) {
+                const float len = bf::length(offset), stepLen = settings.rootRecenterSpeed * dt;
+                offset = len <= stepLen ? Vec3() : offset * ((len - stepLen) / len);
+                st.plantPoint = contact + offset;
+            }
+            st.rootOffset = offset;
+        }
+    } else {
+        st.plantValid = false;
+        st.stanceSide = -1;
+        const float len = bf::length(st.rootOffset), stepLen = 1.0f * dt;
+        st.rootOffset = (len <= stepLen || dt <= 0.0f) ? (dt <= 0.0f ? st.rootOffset : Vec3())
+                                                       : st.rootOffset * ((len - stepLen) / len);
+    }
+    if (bf::length(st.rootOffset) > 1e-6f) translate(out, st.rootOffset);
+    return stance;
+}
 
 } // namespace
 
@@ -430,7 +570,44 @@ std::vector<int> forwardSignsPerFrame(const std::vector<const TrackedBody*>& bod
     return sign;
 }
 
+bool lowestFootPoint(const TrackedBody& b, Vec3& out, float minConf) {
+    bool any = false;
+    for (const auto& L : kLegs) {
+        for (int j : {L.ankle, L.foot}) {
+            if (!tracked(b, j, minConf)) continue;
+            const Vec3 p = pos(b, j);
+            if (!any || p.y < out.y) { out = p; any = true; }
+        }
+    }
+    return any;
+}
+
+void swapLeftRight(TrackedBody& b) {
+    static const int pairs[][2] = {{4, 11}, {5, 12}, {6, 13}, {7, 14}, {8, 15}, {9, 16}, {10, 17},
+                                   {18, 22}, {19, 23}, {20, 24}, {21, 25}, {28, 30}, {29, 31}};
+    for (const auto& pr : pairs) {
+        std::swap(b.joints[pr[0]], b.joints[pr[1]]);
+        std::swap(b.joints2D[pr[0]], b.joints2D[pr[1]]);
+    }
+}
+
+double forwardVote(const TrackedBody& b, int& used, float minConf) {
+    double v = 0.0;
+    used = footVote(b, minConf, v);
+    return v;
+}
+
 FloorPlane estimateFloor(const std::vector<const TrackedBody*>& bodies, float minConf) {
+    std::vector<Vec3> pts;
+    pts.reserve(bodies.size());
+    for (const TrackedBody* b : bodies) {
+        Vec3 p;
+        if (b && lowestFootPoint(*b, p, minConf)) pts.push_back(p);
+    }
+    return estimateFloorFromPoints(pts);
+}
+
+FloorPlane estimateFloorFromPoints(const std::vector<Vec3>& lowestPoints) {
     // Per-frame lowest foot point. Its height is NOT always the floor: at heel
     // strike the lowest tracked point is the ankle (~7 cm up), at push-off it is
     // the toe on the floor, and on a treadmill those happen at fixed front/back
@@ -442,20 +619,9 @@ FloorPlane estimateFloor(const std::vector<const TrackedBody*>& bodies, float mi
     FloorPlane fp;
     struct P { double x, y, z; };
     std::vector<P> pts;
-    pts.reserve(bodies.size());
-    for (const TrackedBody* b : bodies) {
-        if (!b) continue;
-        bool any = false;
-        Vec3 low;
-        for (const auto& L : kLegs) {
-            for (int j : {L.ankle, L.foot}) {
-                if (!tracked(*b, j, minConf)) continue;
-                const Vec3 p = pos(*b, j);
-                if (!any || p.y < low.y) { low = p; any = true; }
-            }
-        }
-        if (any) pts.push_back({low.x, low.y, low.z});
-    }
+    pts.reserve(lowestPoints.size());
+    for (const Vec3& p : lowestPoints)
+        if (std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z)) pts.push_back({p.x, p.y, p.z});
     if (pts.size() < 30) return fp;
 
     // Low envelope per floor cell: 10th percentile of the heights in the cell
@@ -589,10 +755,19 @@ TrackedBody apply(const TrackedBody& in, const Settings& settingsIn, BodyDiagnos
     float maxStep = -1.0f;  // < 0: unlimited
     if (state) {
         const double dt = time - state->time;
-        if (state->valid && state->bodyId == in.id && dt > 0.0 && dt <= 0.25 && settings.maxVerticalSpeed > 0.0f)
-            maxStep = settings.maxVerticalSpeed * (float)dt;
-        else
+        const bool continuous = state->valid && state->bodyId == in.id && dt > 0.0 && dt <= 0.25;
+        if (!continuous) {
+            const TemporalState fresh;
             state->valid = false;
+            state->rootOffset = fresh.rootOffset;  // a gap or another body: start over at the person
+            state->plantValid = false;
+            state->stanceSide = -1;
+            state->havePelvis = false;
+            state->stillTime = 0.0f;
+            state->lastFootValid[0] = state->lastFootValid[1] = false;
+        } else if (settings.maxVerticalSpeed > 0.0f) {
+            maxStep = settings.maxVerticalSpeed * (float)dt;
+        }
     }
     auto limitStep = [&](float value, float previous) {
         if (maxStep < 0.0f || !state || !state->valid) return value;
@@ -612,8 +787,24 @@ TrackedBody apply(const TrackedBody& in, const Settings& settingsIn, BodyDiagnos
     const bool anyEnabled = settings.limbs[0].enabled || settings.limbs[1].enabled;
     if (!ax.valid || !anyEnabled) {
         // keep the state flowing toward zero so a re-enabled leg eases back in
-        remember(limitStep(0.0f, state ? state->pelvisDrop : 0.0f), limitStep(0.0f, state ? state->groundShift : 0.0f));
-        if (diag) *diag = compare(in, out, settings);
+        const float d0 = limitStep(0.0f, state ? state->pelvisDrop : 0.0f);
+        const float g0 = limitStep(0.0f, state ? state->groundShift : 0.0f);
+        const Vec3 up0 = floorUpOf(settings);
+        if (state && std::fabs(d0 - g0) > 1e-6f) translate(out, up0 * (g0 - d0));
+        int stance0 = -1;
+        if (state) {
+            Settings off = settings;
+            off.plantStanceFoot = false;  // nothing modified: just ease any offset back to zero
+            stance0 = plantStanceFoot(in, out, off, up0, *state, time);
+        }
+        remember(d0, g0);
+        if (diag) {
+            *diag = compare(in, out, settings);
+            diag->pelvisDrop = d0;
+            diag->groundShift = g0;
+            diag->rootOffset = state ? state->rootOffset : Vec3();
+            diag->stanceSide = stance0;
+        }
         return out;
     }
 
@@ -703,15 +894,68 @@ TrackedBody apply(const TrackedBody& in, const Settings& settingsIn, BodyDiagnos
     }
     if (state && state->valid) groundShift = limitStep(groundShift, state->groundShift);
     if (std::fabs(groundShift) > 1e-6f) translate(out, up * groundShift);
+
+    // --- Stance-foot planting (overground)
+    int stance = -1;
+    if (state) stance = plantStanceFoot(in, out, settings, up, *state, time);
+
     remember(drop, groundShift);
 
     if (diag) {
         *diag = compare(in, out, settings);
         diag->groundShift = groundShift;
         diag->pelvisDrop = drop;
+        diag->rootOffset = state ? state->rootOffset : Vec3();
+        diag->stanceSide = stance;
     }
     return out;
 }
+
+namespace {
+
+// Component of each segment along its parent's flexion axis: thigh vs pelvis
+// ml, shank vs thigh ml, foot vs shank ml. Unchanged by any flexion.
+struct PlaneComponents {
+    float thigh = 0, shank = 0, foot = 0;
+    float L1 = 0, L2 = 0, Lf = 0;
+    bool footOk = false;
+};
+
+bool planeComponents(const TrackedBody& b, Side side, const BodyAxes& ax, float minConf, PlaneComponents& pc) {
+    const LegJointIndices& L = kLegs[(int)side];
+    if (!ax.valid || !tracked(b, L.hip, minConf) || !tracked(b, L.knee, minConf) || !tracked(b, L.ankle, minConf))
+        return false;
+    const Vec3 H = pos(b, L.hip), K = pos(b, L.knee), T = pos(b, L.ankle);
+    Vec3 dT, dS;
+    if (!bf::tryNormalize(K - H, dT) || !bf::tryNormalize(T - K, dS)) return false;
+    const SegmentFrame thigh = segmentFrame(dT, ax.ml, ax.forwardSign);
+    const SegmentFrame shank = segmentFrame(dS, thigh.m, ax.forwardSign);
+    pc.thigh = bf::dot(dT, ax.ml);
+    pc.shank = bf::dot(dS, thigh.m);
+    pc.L1 = bf::length(K - H);
+    pc.L2 = bf::length(T - K);
+    pc.footOk = false;
+    if (tracked(b, L.foot, minConf)) {
+        Vec3 dF;
+        if (bf::tryNormalize(pos(b, L.foot) - T, dF)) {
+            pc.foot = bf::dot(dF, shank.m);
+            pc.Lf = bf::length(pos(b, L.foot) - T);
+            pc.footOk = true;
+        }
+    }
+    return true;
+}
+
+float offPlaneDistance(const TrackedBody& in, const TrackedBody& out, Side side, const BodyAxes& axIn,
+                       const BodyAxes& axOut, float minConf) {
+    PlaneComponents a, b;
+    if (!planeComponents(in, side, axIn, minConf, a) || !planeComponents(out, side, axOut, minConf, b)) return 0.0f;
+    float d = a.L1 * std::fabs(b.thigh - a.thigh) + a.L2 * std::fabs(b.shank - a.shank);
+    if (a.footOk && b.footOk) d += a.Lf * std::fabs(b.foot - a.foot);
+    return d;
+}
+
+} // namespace
 
 BodyDiagnostics compare(const TrackedBody& in, const TrackedBody& out, const Settings& settings) {
     BodyDiagnostics d;
@@ -749,6 +993,7 @@ BodyDiagnostics compare(const TrackedBody& in, const TrackedBody& out, const Set
 
         if (!ld.out.valid) continue;
         ld.lateralShift = ld.out.stepML - ld.in.stepML;
+        ld.offPlane = offPlaneDistance(in, out, (Side)s, axIn, axOut, c);
         const LegJointIndices& L = kLegs[s];
         auto boneErr = [&](int a, int b) {
             return std::fabs(bf::length(pos(out, b) - pos(out, a)) - bf::length(pos(in, b) - pos(in, a)));

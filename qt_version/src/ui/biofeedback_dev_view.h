@@ -40,6 +40,10 @@ public:
         std::shared_ptr<const TrackedBody> body;    // drawn normally
         std::shared_ptr<const TrackedBody> ghost;   // drawn faint behind (optional)
         std::array<bool, JOINT_COUNT> highlight{};  // joints whose limb is being modified
+        // Data-space offset added to the shared camera target for this view
+        // (the modified avatar may travel further than the person when its
+        // stance foot is planted; the view follows it).
+        bf::Vec3 targetOffset;
         bool hasFloor = false;
         bf::Vec3 floorUp{0.0f, 1.0f, 0.0f};  // data-space floor normal
         float floorHeight = 0.0f;            // dot(point, floorUp) on the floor

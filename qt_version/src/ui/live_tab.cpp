@@ -553,6 +553,18 @@ LiveTab::LiveTab(AppController* ctrl, QWidget* parent)
         ctrl_->showModifiedInViewer = v;
     });
     bioLayout->addWidget(showModifiedCb_);
+    biofeedbackEngineLabel_ = new QLabel;
+    biofeedbackEngineLabel_->setProperty("muted", true);
+    biofeedbackEngineLabel_->setWordWrap(true);
+    bioLayout->addWidget(biofeedbackEngineLabel_);
+    liveNeutralBtn_ = new QPushButton("Capture Neutral (quiet standing)");
+    liveNeutralBtn_->setToolTip("Anatomical engine: use the patient's current pose as neutral, so gains\n"
+                                "scale movement away from their own standing posture.");
+    connect(liveNeutralBtn_, &QPushButton::clicked, this, [this] {
+        if (!ctrl_->captureLiveNeutral())
+            QMessageBox::information(this, "Capture Neutral", "No leg is tracked well enough right now.");
+    });
+    bioLayout->addWidget(liveNeutralBtn_);
     biofeedbackSection_->setVisible(false);
     cl->addWidget(biofeedbackSection_);
 
@@ -678,19 +690,12 @@ void LiveTab::onTick() {
 
     // Apply smoothing (we mutate a copy so the original in slot remains raw)
     if (f0) {
-        auto fCopy = std::make_shared<FrameData>(*f0);
-        ctrl_->applySmoothingToFrame(*fCopy, 0);
-
-        // Apply biofeedback transforms for patient screen
-        std::shared_ptr<FrameData> patientFrame = fCopy;
-        if (ctrl_->biofeedbackActive() && ctrl_->biofeedbackEngine().hasActiveTransforms()) {
-            float protoTime = (ctrl_->protocolRunner().state() == ProtocolRunnerState::Running)
-                ? ctrl_->protocolRunner().currentTime()
-                : ctrl_->debugInfo.sessionSeconds;
-            auto modified = std::make_shared<FrameData>(
-                ctrl_->biofeedbackEngine().applyTransforms(*fCopy, protoTime));
-            patientFrame = modified;
-        }
+        // Smoothing and biofeedback run once per camera frame in the
+        // controller, so the patient screen shows exactly what is recorded
+        ctrl_->processLatestFrame();
+        std::shared_ptr<FrameData> fCopy = ctrl_->smoothedFrame();
+        if (!fCopy) fCopy = std::make_shared<FrameData>(*f0);
+        std::shared_ptr<FrameData> patientFrame = ctrl_->patientFrame() ? ctrl_->patientFrame() : fCopy;
 
         // Patient screen respects avatar visibility
         patientScreen_->setAvatarVisible(ctrl_->avatarVisible());
@@ -740,6 +745,19 @@ void LiveTab::onTick() {
 
     if (biofeedbackSection_) {
         biofeedbackSection_->setVisible(ctrl_->biofeedbackActive());
+        const bool anat = ctrl_->useAnatomicalBiofeedback();
+        QString engine = anat ? "Engine: anatomical (profile from Biofeedback Dev)" : "Engine: current";
+        if (anat) {
+            const auto& st = ctrl_->liveProcessor().status();
+            QStringList notes;
+            if (st.planar) notes << "2D";
+            if (st.overground) notes << "overground: stance foot planted";
+            if (st.swapped) notes << "left/right swap corrected";
+            if (st.floor.valid && st.floor.tiltDeg >= 3.0f) notes << QString("floor tilt %1°").arg(st.floor.tiltDeg, 0, 'f', 0);
+            if (!notes.isEmpty()) engine += " · " + notes.join(" · ");
+        }
+        biofeedbackEngineLabel_->setText(engine);
+        liveNeutralBtn_->setVisible(anat);
     }
 
     updateProtocolUI();

@@ -154,6 +154,71 @@ void testCameraConfigPropagation() {
     expect(controller.cameraType(1) == before, "invalid camera type slot should be ignored");
 }
 
+// A standing body facing a Kinect (x right, y up, z away; subject's right = -x)
+TrackedBody standingBody(float leftHipDeg) {
+    TrackedBody b;
+    b.id = 3;
+    auto set = [&](CanonicalJoint j, float x, float y, float z) { b.joints[(int)j] = {x, y, z, 1.0f}; };
+    set(CanonicalJoint::PELVIS, 0.0f, 0.0f, 2.5f);
+    set(CanonicalJoint::SPINE_NAVEL, 0.0f, 0.2f, 2.5f);
+    set(CanonicalJoint::SPINE_CHEST, 0.0f, 0.4f, 2.5f);
+    set(CanonicalJoint::NECK, 0.0f, 0.6f, 2.5f);
+    set(CanonicalJoint::HEAD, 0.0f, 0.75f, 2.5f);
+    const float th = leftHipDeg * 3.14159265f / 180.0f;
+    // left leg (subject's left = +x), flexed forward (-z) by the hip angle
+    set(CanonicalJoint::HIP_LEFT, 0.09f, -0.05f, 2.5f);
+    set(CanonicalJoint::KNEE_LEFT, 0.09f, -0.05f - 0.42f * std::cos(th), 2.5f - 0.42f * std::sin(th));
+    set(CanonicalJoint::ANKLE_LEFT, 0.09f, -0.05f - 0.82f * std::cos(th), 2.5f - 0.82f * std::sin(th));
+    set(CanonicalJoint::FOOT_LEFT, 0.09f, -0.05f - 0.82f * std::cos(th), 2.5f - 0.82f * std::sin(th) - 0.15f);
+    set(CanonicalJoint::HIP_RIGHT, -0.09f, -0.05f, 2.5f);
+    set(CanonicalJoint::KNEE_RIGHT, -0.09f, -0.47f, 2.5f);
+    set(CanonicalJoint::ANKLE_RIGHT, -0.09f, -0.87f, 2.5f);
+    set(CanonicalJoint::FOOT_RIGHT, -0.09f, -0.87f, 2.35f);
+    return b;
+}
+
+void testLivePatientFrameIsProcessedOnce(const std::filesystem::path& tempDir) {
+    AppController ctrl;
+    ctrl.config().recordingsDir = (tempDir / "live_bf").string();  // Begin Biofeedback opens recorder files
+    ctrl.setCameraType(0, CameraType::AzureKinect);
+    ctrl.setUseAnatomicalBiofeedback(true);
+    anat::Settings profile;
+    profile.groundContact = false;
+    ctrl.setAnatomicalProfile(profile, anat::LiveProcessor::Options{});
+
+    auto push = [&](float hipDeg) {
+        auto f = std::make_shared<FrameData>();
+        f->bodies.push_back(standingBody(hipDeg));
+        { std::lock_guard<std::mutex> lock(ctrl.slot(0).frameMutex); ctrl.slot(0).sharedFrame = f; }
+    };
+
+    // Before biofeedback: patient frame is the smoothed input, unmodified
+    push(20.0f);
+    ctrl.processLatestFrame();
+    expect(ctrl.patientFrame() == ctrl.smoothedFrame(), "live: no biofeedback -> patient sees the input");
+
+    ctrl.executeProtocolAction({ProtocolEventType::BeginBiofeedback, ""});
+    ctrl.executeProtocolAction({ProtocolEventType::SetBiofeedbackTransform, "LEFT_HIP_FLEXION,1.5,1.5,0,0"});
+    push(20.0f);
+    ctrl.processLatestFrame();
+    auto first = ctrl.patientFrame();
+    expect(first && first != ctrl.smoothedFrame(), "live: biofeedback active -> patient frame modified");
+    if (first && !first->bodies.empty()) {
+        anat::Settings s;
+        s.forwardSign = 1;
+        const auto m = anat::measureLeg(first->bodies[0], anat::Side::Left, anat::computeAxes(first->bodies[0], s));
+        expectNear(m.hip * 180.0 / 3.14159265, 30.0, 0.5, "live: protocol gain 1.5 applied by the anatomical engine");
+    }
+    ctrl.processLatestFrame();  // same camera frame again (e.g. Live tab tick)
+    expect(ctrl.patientFrame() == first, "live: a camera frame is processed only once");
+
+    ctrl.executeProtocolAction({ProtocolEventType::EndBiofeedback, ""});
+    push(20.0f);
+    ctrl.processLatestFrame();
+    expect(ctrl.patientFrame() == ctrl.smoothedFrame(), "live: biofeedback ended -> unmodified again");
+    ctrl.setUseAnatomicalBiofeedback(false);
+}
+
 void testPlaybackLoaders(const std::filesystem::path& tempDir) {
     const auto recordedCsv = tempDir / "walk_20260602_101010_cam1.csv";
     writeText(recordedCsv,
@@ -245,6 +310,7 @@ int main(int argc, char** argv) {
     testControllerOverlayCountdownAndUnload();
     testCameraConfigPropagation();
     testPlaybackLoaders(tempDir);
+    testLivePatientFrameIsProcessedOnce(tempDir);
 
     std::filesystem::remove_all(tempDir, ec);
 

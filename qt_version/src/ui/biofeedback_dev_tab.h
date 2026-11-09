@@ -13,6 +13,7 @@
 //                         what the patient was shown, auto-aligned in time
 
 #include "../biofeedback/anatomical_engine.h"
+#include "../biofeedback/anatomical_live.h"
 #include "../biofeedback/biofeedback_engine.h"
 #include "../recording/playback.h"
 
@@ -41,7 +42,7 @@ class QToolButton;
 class BiofeedbackDevTab : public QWidget {
     Q_OBJECT
 public:
-    enum class Engine { Anatomical = 0, Legacy = 1, Recorded = 2 };
+    enum class Engine { Anatomical = 0, Legacy = 1, Recorded = 2, LivePreview = 3 };
 
     explicit BiofeedbackDevTab(AppController* ctrl, QWidget* parent = nullptr);
     ~BiofeedbackDevTab() override;
@@ -94,7 +95,10 @@ private:
     void applyFloorMode();
     void autoDetectRecordedAvatar();
     double alignRecordedAvatar(double guess, double* matchErrorMm);
-    const TrackedBody* recordedBodyAt(double rawTime) const;
+    bool recordedBodyAt(int frame, TrackedBody& out) const;
+    anat::LiveProcessor::Options liveOptions() const;
+    void pushLiveProfile();
+    void detectLocomotion();
 
     void setPlaying(bool playing);
     void stepFrames(int delta);
@@ -108,7 +112,14 @@ private:
     QString sessionPath_;
     PlaybackManager session_;
     std::vector<double> times_;
-    std::vector<TrackedBody> raw_;      // primary body per frame
+    std::vector<TrackedBody> rawOriginal_;  // primary body per frame, as recorded
+    std::vector<TrackedBody> raw_;      // ... with tracker left/right swaps undone
+    std::vector<char> swapped_;         // frame had its left/right labels swapped back
+    double swappedSeconds_ = 0.0;
+    bool fixSwaps_ = true;
+    bool detectedOverground_ = false;   // the subject travelled (not a treadmill)
+    int locomotionMode_ = 0;            // 0 auto, 1 treadmill, 2 overground
+    std::vector<TrackedBody> liveSeen_; // live preview: what the causal processor saw
     std::vector<char> hasBody_;
     std::vector<TrackedBody> input_;    // after smoothing
     std::vector<TrackedBody> output_;
@@ -199,6 +210,9 @@ private:
     QComboBox* hipRefCombo_ = nullptr;
     QComboBox* forwardCombo_ = nullptr;
     QComboBox* floorCombo_ = nullptr;
+    QComboBox* locomotionCombo_ = nullptr;
+    QCheckBox* fixSwapsCb_ = nullptr;
+    QCheckBox* useLiveCb_ = nullptr;
     QToolButton* ghostBtn_ = nullptr;
     QToolButton* axesBtn_ = nullptr;
     QToolButton* labelsBtn_ = nullptr;

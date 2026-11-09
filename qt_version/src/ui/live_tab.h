@@ -153,6 +153,8 @@ private:
     QPushButton* popOutBtn_ = nullptr;
     CameraFeedWindow* feedWindow_ = nullptr;
     QWidget* biofeedbackSection_ = nullptr;
+    QLabel* biofeedbackEngineLabel_ = nullptr;
+    QPushButton* liveNeutralBtn_ = nullptr;
 
     // Status
     QLabel* statusLabel_ = nullptr;

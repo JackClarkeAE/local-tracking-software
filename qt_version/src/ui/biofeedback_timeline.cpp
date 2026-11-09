@@ -196,6 +196,13 @@ void BiofeedbackTimeline::renderStatic(QPainter& p) {
         }
         const bool hasData = lo <= hi;
         if (hasData) {
+            if (track.includeZero) { lo = std::min(lo, 0.0f); hi = std::max(hi, 0.0f); }
+            if (hi - lo < track.minSpan) {
+                const float grow = track.minSpan - (hi - lo);
+                if (track.includeZero && lo >= 0.0f) hi += grow;       // keep 0 at the bottom
+                else if (track.includeZero && hi <= 0.0f) lo -= grow;  // ... or at the top
+                else { lo -= grow * 0.5f; hi += grow * 0.5f; }
+            }
             if (hi - lo < 1e-3f) { lo -= 1.0f; hi += 1.0f; }
             const float pad = (hi - lo) * 0.12f;
             lo -= pad;

@@ -10,6 +10,7 @@
 #include "data/data_exporter.h"
 #include "biofeedback/biofeedback_engine.h"
 #include "biofeedback/biofeedback_recorder.h"
+#include "biofeedback/anatomical_live.h"
 #include "ui/overlay_state.h"
 
 #include <QObject>
@@ -166,6 +167,25 @@ public:
     bool showModifiedInViewer = false;
     bool showJointAngles = false;
 
+    // EXPERIMENTAL — anatomical biofeedback engine on the live patient screen.
+    // The profile (neutral, ground contact, step mode, ...) is tuned in the
+    // Biofeedback Development tab; protocol "Set BF Transform" events still
+    // drive the hip/knee/ankle gains, with their ramps.
+    bool useAnatomicalBiofeedback() const { return useAnatomical_; }
+    void setUseAnatomicalBiofeedback(bool on);
+    const anat::Settings& anatomicalProfile() const { return anatomicalProfile_; }
+    const anat::LiveProcessor::Options& anatomicalOptions() const { return anatomicalOptions_; }
+    void setAnatomicalProfile(const anat::Settings& settings, const anat::LiveProcessor::Options& options);
+    const anat::LiveProcessor& liveProcessor() const { return liveProcessor_; }
+    bool captureLiveNeutral();  // neutral = the current live pose (quiet standing)
+
+    // Smoothing and biofeedback for the latest camera-0 frame, done once per
+    // camera frame so the patient screen and the biofeedback recording show
+    // exactly the same thing (and stateful processing sees each frame once).
+    void processLatestFrame();
+    std::shared_ptr<FrameData> smoothedFrame() const { return smoothedFrame_; }
+    std::shared_ptr<FrameData> patientFrame() const { return patientFrame_; }
+
     const OverlayState& overlayState() const { return overlayState_; }
     void setOverlayText(const std::string& text);
     void setOverlayTextFull(const std::string& text, TextPosition pos,
@@ -208,6 +228,8 @@ private:
     void trackingLoop(int slotIndex);
     void checkSdkAvailability();
     void parseBiofeedbackTransformParam(const std::string& param);
+    anat::LiveProcessor::Options liveOptionsForCamera() const;
+    void applyProtocolGains(anat::Settings& settings, float protoTime) const;
 
     AppConfig config_;
     SessionState sessionState_ = SessionState::Stopped;
@@ -238,6 +260,14 @@ private:
     BiofeedbackEngine biofeedbackEngine_;
     BiofeedbackRecorder biofeedbackRecorder_;
     bool biofeedbackActive_ = false;
+    bool useAnatomical_ = false;
+    anat::Settings anatomicalProfile_;
+    anat::LiveProcessor::Options anatomicalOptions_;
+    anat::LiveProcessor liveProcessor_;
+    std::shared_ptr<FrameData> lastRawFrame_, smoothedFrame_, patientFrame_;
+    uint32_t liveBodyId_ = 0;
+    bool liveBodyKnown_ = false;
+    std::chrono::steady_clock::time_point liveClockStart_ = std::chrono::steady_clock::now();
     bool avatarVisible_ = true;
 
     // SDK availability

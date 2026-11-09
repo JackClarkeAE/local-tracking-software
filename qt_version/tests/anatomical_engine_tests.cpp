@@ -5,6 +5,8 @@
 // feet kept on the floor, no NaNs at full extension.
 
 #include "../src/biofeedback/anatomical_engine.h"
+#include "../src/biofeedback/anatomical_live.h"
+#include "../src/biofeedback/biofeedback_engine.h"
 
 #include <algorithm>
 #include <cmath>
@@ -594,6 +596,292 @@ void testTemporalLimits() {
     expectNear(d2.pelvisDrop, free.pelvisDrop, 1e-6, "state resets after a time gap");
 }
 
+void testOffPlaneMetric() {
+    // Abducted thigh: knee flexion moves the ankle sideways (its plane is
+    // tilted), but that is not off-plane movement. The old three-point
+    // rotation at standing is.
+    const TrackedBody b = makeBody(kinectFacingCamera(), {20, 30, 5, 12}, {0, 3, 0, 0});
+    anat::Settings s = settingsFor(1);
+    s.groundContact = false;
+    s.limbs[0].enabled = true;
+    s.limbs[0].kneeGain = 1.6f;
+    anat::BodyDiagnostics d;
+    anat::apply(b, s, &d);
+    expect(std::fabs(d.limbs[0].lateralShift) > 0.005f, "tilted knee plane does move the ankle sideways");
+    expectNear(d.limbs[0].offPlane * 1000, 0, 0.05, "...but knee flexion is not off-plane");
+    s.limbs[0].kneeGain = 1.0f;
+    s.limbs[0].hipGain = 1.6f;
+    s.limbs[0].ankleGain = 1.4f;
+    anat::apply(b, s, &d);
+    expectNear(d.limbs[0].offPlane * 1000, 0, 0.05, "hip and ankle flexion are not off-plane");
+
+    const TrackedBody standing = makeBody(kinectFacingCamera(), {2, 2, 0, 0}, {2, 2, 0, 0});
+    BiofeedbackEngine legacy;
+    legacy.setTransform(BiomechAngle::LEFT_HIP_FLEXION, 1.5f, 1.5f, 0, 0);
+    FrameData f;
+    f.bodies.push_back(standing);
+    const TrackedBody legacyOut = legacy.applyTransforms(f, 0).bodies[0];
+    const anat::BodyDiagnostics ld = anat::compare(standing, legacyOut, s);
+    expect(ld.limbs[0].offPlane > 0.05f, "old engine's sideways swing is flagged off-plane (" +
+                                             std::to_string(ld.limbs[0].offPlane * 1000) + " mm)");
+}
+
+void testSwapLeftRight() {
+    const TrackedBody b = makeBody(kinectFacingCamera(), {25, 40, 10, 0}, {-12, 5, -8, 0});
+    TrackedBody s = b;
+    anat::swapLeftRight(s);
+    const auto& L = anat::legJoints(anat::Side::Left);
+    const auto& R = anat::legJoints(anat::Side::Right);
+    expectNear(bf::length(jp(s, L.knee) - jp(b, R.knee)), 0, 0, "swap: left knee <- right knee");
+    expectNear(bf::length(jp(s, 5) - jp(b, 12)), 0, 0, "swap: shoulders too");
+    expectNear(bf::length(jp(s, 0) - jp(b, 0)), 0, 0, "swap: midline joints untouched");
+    anat::swapLeftRight(s);
+    double err = 0;
+    for (int j = 0; j < JOINT_COUNT; ++j) err += bf::length(jp(s, j) - jp(b, j));
+    expectNear(err, 0, 0, "swap twice = identity");
+    // a swapped body flips the forward vote (that's how swaps are detected)
+    TrackedBody once = b;
+    anat::swapLeftRight(once);
+    int u1 = 0, u2 = 0;
+    const double v1 = anat::forwardVote(b, u1), v2 = anat::forwardVote(once, u2);
+    expect(u1 == 2 && u2 == 2 && v1 > 1.0 && v2 < -1.0, "swapped labels flip the forward vote");
+}
+
+// Overground walking with the stance ankle fixed in the world: an inverted
+// pendulum stance leg and a flexing swing leg, 3 steps per side.
+std::vector<TrackedBody> walkingSequence(std::vector<double>& times, std::vector<int>& stanceSide,
+                                         int standStillFrames = 0) {
+    std::vector<TrackedBody> frames;
+    const Convention c = kinectFacingCamera();
+    const int perStep = 18;  // 0.6 s at 30 fps
+    Vec3 plant(0.1f, -0.85f, 2.5f);
+    bool first = true;
+    int side = 0;
+    for (int step = 0; step < 6; ++step, side = 1 - side) {
+        TrackedBody last;
+        for (int k = 0; k < perStep; ++k) {
+            const float u = k / (float)perStep;
+            const float stanceHip = 20 - 40 * u, swingHip = -20 + 40 * u;
+            const float swingKnee = 40 * std::sin(3.14159f * u);
+            // feet kept level (stance) / toes slightly up (swing), as in real gait —
+            // nothing pokes below the floor the stance foot stands on
+            const LegPose st{stanceHip, 2, -(stanceHip - 2), 0};
+            const LegPose sw{swingHip, swingKnee + 2, -(swingHip - swingKnee - 2) + 10, 0};
+            TrackedBody b = side == 0 ? makeBody(c, st, sw) : makeBody(c, sw, st);
+            const auto& L = anat::legJoints((anat::Side)side);
+            if (first) { plant = Vec3(jp(b, L.ankle).x, -0.85f, jp(b, L.ankle).z); first = false; }
+            const Vec3 shift = plant - jp(b, L.ankle);
+            for (auto& jt : b.joints) { jt.x += shift.x; jt.y += shift.y; jt.z += shift.z; }
+            frames.push_back(b);
+            times.push_back(frames.size() / 30.0);
+            stanceSide.push_back(side);
+            last = b;
+        }
+        // next stance foot lands where the swing ankle would be at u = 1
+        const LegPose st{-20, 2, 0, 0}, sw{20, 2, 0, 0};
+        TrackedBody end = side == 0 ? makeBody(c, st, sw) : makeBody(c, sw, st);
+        const auto& Ls = anat::legJoints((anat::Side)side);
+        const auto& Lw = anat::legJoints((anat::Side)(1 - side));
+        const Vec3 off = plant - jp(end, Ls.ankle);
+        plant = jp(end, Lw.ankle) + off;
+        plant.y = -0.85f;
+    }
+    for (int k = 0; k < standStillFrames; ++k) {
+        frames.push_back(frames.back());
+        times.push_back(frames.size() / 30.0);
+        stanceSide.push_back(-1);
+    }
+    return frames;
+}
+
+void testStanceFootPlanting() {
+    std::vector<double> times;
+    std::vector<int> stance;
+    const auto frames = walkingSequence(times, stance, 90);
+    anat::Settings s = settingsFor(1);
+    for (auto& l : s.limbs) { l.enabled = true; l.hipGain = 1.5f; }
+
+    auto run = [&](bool plant, float& maxSlip, float& travelIn, float& travelOut, float& finalOffset) {
+        s.plantStanceFoot = plant;
+        anat::TemporalState st;
+        std::vector<TrackedBody> out;
+        for (size_t i = 0; i < frames.size(); ++i) {
+            anat::BodyDiagnostics d;
+            out.push_back(anat::apply(frames[i], s, &d, &st, times[i]));
+            finalOffset = bf::length(d.rootOffset);
+        }
+        maxSlip = 0;
+        for (size_t i = 1; i < frames.size(); ++i) {
+            if (stance[i] < 0 || stance[i] != stance[i - 1]) continue;
+            if (i >= 2 && stance[i - 2] != stance[i]) continue;  // contact settling
+            const auto& L = anat::legJoints((anat::Side)stance[i]);
+            Vec3 d = jp(out[i], L.ankle) - jp(out[i - 1], L.ankle);
+            d.y = 0;
+            maxSlip = std::max(maxSlip, bf::length(d));
+        }
+        const size_t walkEnd = frames.size() - 91;
+        Vec3 ti = jp(frames[walkEnd], 0) - jp(frames[0], 0), to = jp(out[walkEnd], 0) - jp(out[0], 0);
+        ti.y = to.y = 0;
+        travelIn = bf::length(ti);
+        travelOut = bf::length(to);
+    };
+    float slipOff, inOff, outOff, endOff, slipOn, inOn, outOn, endOn;
+    run(false, slipOff, inOff, outOff, endOff);
+    run(true, slipOn, inOn, outOn, endOn);
+    expect(slipOff > 0.01f, "without planting the stance foot slides (" + std::to_string(slipOff * 1000) + " mm/frame)");
+    expect(slipOn < 0.002f, "with planting the stance foot stays put (" + std::to_string(slipOn * 1000) + " mm/frame)");
+    expect(outOn > inOn * 1.15f, "planted avatar travels further than the person (" + std::to_string(outOn) + " vs " +
+                                     std::to_string(inOn) + " m)");
+    expectNear(outOff, inOff, 0.02, "unplanted avatar stays with the person");
+    expect(endOn < 0.6f * (outOn - inOn) + 0.01f, "standing still afterwards: the avatar drifts back toward the person");
+}
+
+// ---------------------------------------------------------------------------
+// LiveProcessor (causal pipeline for the live patient screen)
+// ---------------------------------------------------------------------------
+
+// Rotate a body 180° about the vertical through its pelvis and swap its
+// left/right labels: what a facing-the-camera tracker reports when the
+// subject turns their back.
+TrackedBody facingAwayAsKinectSeesIt(const TrackedBody& b) {
+    TrackedBody r = b;
+    const Vec3 p = jp(b, 0);
+    for (auto& jt : r.joints) {
+        jt.x = 2 * p.x - jt.x;
+        jt.z = 2 * p.z - jt.z;
+    }
+    anat::swapLeftRight(r);
+    return r;
+}
+
+void testLiveGapHolding() {
+    anat::LiveProcessor lp;
+    anat::Settings s = settingsFor(1);
+    const auto& L = anat::legJoints(anat::Side::Left);
+    TrackedBody truth3;
+    for (int i = 0; i < 30; ++i) {
+        TrackedBody b = makeBody(kinectFacingCamera(), {2.0f * i, 10, 0, 0}, {0, 5, 0, 0});
+        if (i == 3) truth3 = b;
+        if (i >= 3 && i <= 5) b.joints[L.foot].confidence = 0.0f;          // 0.1 s: held
+        if (i >= 10 && i <= 29) b.joints[L.knee].confidence = 0.0f;        // long: let go
+        lp.process(b, i / 30.0, s);
+        if (i == 3) {
+            const Vec3 held = jp(lp.lastInput(), L.foot);
+            expect(lp.lastInput().joints[L.foot].confidence > 0.1f, "live: short foot dropout held");
+            expectNear(bf::length(held - jp(truth3, L.foot)) * 1000, 0, 25, "live: held foot follows the ankle");
+        }
+        if (i == 25)
+            expect(lp.lastInput().joints[L.knee].confidence < 0.1f, "live: long dropout not held past 0.25 s");
+    }
+}
+
+void testLiveSwapCorrection() {
+    anat::LiveProcessor lp;
+    anat::LiveProcessor::Options o;
+    o.forwardHint = 1;  // Kinect: left-handed coordinates
+    lp.setOptions(o);
+    anat::Settings s = settingsFor(1);
+    s.groundContact = false;
+    int swappedFrames = 0, correctLeft = 0, checked = 0;
+    for (int i = 0; i < 150; ++i) {
+        const float ph = i * 0.21f;
+        // left and right legs clearly different: left forward, right back
+        const TrackedBody facing = makeBody(kinectFacingCamera(), {25 + 3 * std::sin(ph), 10, 0, 0},
+                                            {-10 + 3 * std::sin(ph), 5, 0, 0});
+        const bool away = i >= 50 && i < 110;
+        const TrackedBody b = away ? facingAwayAsKinectSeesIt(facing) : facing;
+        lp.process(b, i / 30.0, s);
+        if (lp.status().swapped) ++swappedFrames;
+        if ((i >= 75 && i < 110) || (i >= 135)) {  // ~0.8 s after each turn
+            ++checked;
+            const anat::BodyAxes ax = anat::computeAxes(lp.lastInput(), s);
+            const anat::LegMeasure m = anat::measureLeg(lp.lastInput(), anat::Side::Left, ax);
+            if (m.valid && m.hip > 15 * kDeg) ++correctLeft;
+        }
+    }
+    expect(swappedFrames >= 35 && swappedFrames <= 62, "live: swap detected while facing away (" +
+                                                           std::to_string(swappedFrames) + " frames)");
+    expect(correctLeft == checked, "live: the anatomical left leg stays 'left' (" + std::to_string(correctLeft) + "/" +
+                                       std::to_string(checked) + ")");
+
+    // without the fix the left leg reads as the right one while facing away
+    anat::LiveProcessor raw;
+    o.fixLeftRightSwaps = false;
+    raw.setOptions(o);
+    TrackedBody facing = makeBody(kinectFacingCamera(), {25, 10, 0, 0}, {-10, 5, 0, 0});
+    for (int i = 0; i < 40; ++i) raw.process(facingAwayAsKinectSeesIt(facing), i / 30.0, s);
+    expect(!raw.status().swapped, "live: swap fix can be switched off");
+}
+
+void testLivePlanarTurning() {
+    anat::LiveProcessor lp;
+    anat::Settings s = settingsFor(1);
+    int wrong = 0;
+    for (int i = 0; i < 180; ++i) {
+        Convention c = rgbSideView();
+        const bool back = (i / 60) % 2 == 1;  // turns round every 2 s
+        if (back) c.ant = Vec3(-1, 0, 0);
+        const float ph = i * 0.2f;
+        const TrackedBody b = makeBody(c, {15 * std::sin(ph), 20, 5, 0}, {-15 * std::sin(ph), 20, 5, 0});
+        lp.process(b, i / 30.0, s);
+        const int expected = back ? 1 : -1;  // rgb: ml x up = -x
+        if (i % 60 >= 25 && lp.status().forwardSign != expected) ++wrong;  // allow ~0.8 s to follow
+    }
+    expect(lp.status().planar, "live: 2D detected");
+    expect(wrong == 0, "live: 2D forward sign follows the subject turning (" + std::to_string(wrong) + " wrong)");
+}
+
+void testLiveLocomotion() {
+    std::vector<double> times;
+    std::vector<int> stance;
+    const auto walk = walkingSequence(times, stance, 0);
+    anat::LiveProcessor lp;
+    anat::Settings s = settingsFor(1);
+    for (auto& l : s.limbs) { l.enabled = true; l.hipGain = 1.5f; }
+    bool overground = false;
+    for (size_t i = 0; i < walk.size(); ++i) {
+        lp.process(walk[i], times[i], s);
+        overground = overground || lp.status().overground;
+    }
+    expect(overground, "live: overground walking detected");
+
+    anat::LiveProcessor tm;  // treadmill: pelvis stays put
+    bool any = false;
+    for (int i = 0; i < 200; ++i) {
+        const float ph = i * 0.18f;
+        tm.process(makeBody(kinectFacingCamera(), {20 * std::sin(ph), 15, 0, 0}, {-20 * std::sin(ph), 15, 0, 0}),
+                   i / 30.0, s);
+        any = any || tm.status().overground;
+    }
+    expect(!any, "live: treadmill walking is not overground");
+}
+
+void testLiveMatchesTargets() {
+    // On clean data the live pipeline must hit the same angle targets as the engine
+    anat::LiveProcessor lp;
+    anat::LiveProcessor::Options o;
+    o.forwardHint = 1;
+    lp.setOptions(o);
+    anat::Settings s = settingsFor(1);
+    s.groundContact = false;
+    s.limbs[0].enabled = true;
+    s.limbs[0].hipGain = 1.4f;
+    s.limbs[0].kneeGain = 1.3f;
+    double worst = 0;
+    for (int i = 0; i < 120; ++i) {
+        const float ph = i * 0.2f;
+        const TrackedBody b = makeBody(kinectFacingCamera(), {15 + 20 * std::sin(ph), 30 + 25 * std::sin(ph + 1), 0, 0},
+                                       {5, 5, 0, 0});
+        anat::BodyDiagnostics d;
+        lp.process(b, i / 30.0, s, &d);
+        if (d.limbs[0].valid) {
+            worst = std::max(worst, (double)std::fabs(d.limbs[0].out.hip - d.limbs[0].target[0]));
+            worst = std::max(worst, (double)std::fabs(d.limbs[0].out.knee - d.limbs[0].target[1]));
+        }
+    }
+    expectNear(worst / kDeg, 0, 0.05, "live: angle targets hit");
+}
+
 // ---------------------------------------------------------------------------
 // Randomised invariants (run under ASan/UBSan locally)
 // ---------------------------------------------------------------------------
@@ -684,6 +972,7 @@ void testRandomisedInvariants() {
                 if (miss(ld.out.knee, ld.target[1])) { expect(false, "knee target missed" + tag + detail()); break; }
                 if (ld.in.ankleValid && ld.out.ankleValid && std::isfinite(ld.target[2]) &&
                     miss(ld.out.ankle, ld.target[2])) { expect(false, "ankle target missed" + tag); break; }
+                if (ld.offPlane > 1e-4f) { expect(false, "angle mode moved a limb off its flexion plane" + tag); break; }
                 // hip/knee gains never move the ankle sideways relative to the hip by more
                 // than the knee's own (tilted) flexion plane allows
                 if (std::fabs(ls.kneeGain - 1.0f) < 1e-4f && std::fabs(ld.lateralShift) > 1e-4f) {
@@ -741,6 +1030,14 @@ int main() {
     testForwardSignsPerFrame();
     testGapFilling();
     testTemporalLimits();
+    testOffPlaneMetric();
+    testSwapLeftRight();
+    testStanceFootPlanting();
+    testLiveGapHolding();
+    testLiveSwapCorrection();
+    testLivePlanarTurning();
+    testLiveLocomotion();
+    testLiveMatchesTargets();
     testRandomisedInvariants();
 
     if (g_failures == 0) {

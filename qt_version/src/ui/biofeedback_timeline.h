@@ -26,6 +26,10 @@ public:
         QString name;
         QString unit;
         std::vector<Series> series;
+        // Smallest vertical span shown (in the track's unit), so a nearly
+        // flat track isn't auto-scaled until sub-unit noise fills it
+        float minSpan = 0.0f;
+        bool includeZero = false;
     };
 
     explicit BiofeedbackTimeline(QWidget* parent = nullptr);

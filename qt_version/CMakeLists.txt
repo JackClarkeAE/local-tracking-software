@@ -219,6 +219,7 @@ set(APP_SOURCES
     src/biofeedback/biofeedback_engine.cpp
     src/biofeedback/biofeedback_recorder.cpp
     src/biofeedback/anatomical_engine.cpp
+    src/biofeedback/anatomical_live.cpp
 
     # Backend - game
     src/game/block_game.cpp
@@ -265,6 +266,7 @@ set(APP_HEADERS
     src/biofeedback/biofeedback_engine.h
     src/biofeedback/biofeedback_recorder.h
     src/biofeedback/anatomical_engine.h
+    src/biofeedback/anatomical_live.h
     src/biofeedback/bf_math.h
     src/game/block_game.h
 )
@@ -362,6 +364,8 @@ add_executable(qt_parity_tests
     src/recording/video_recorder.cpp
     src/biofeedback/biofeedback_engine.cpp
     src/biofeedback/biofeedback_recorder.cpp
+    src/biofeedback/anatomical_engine.cpp
+    src/biofeedback/anatomical_live.cpp
     src/app_controller.h
     src/recording/video_recorder.h
     src/ui/overlay_state.h
@@ -390,6 +394,8 @@ set_tests_properties(qt_parity_tests PROPERTIES
 add_executable(anatomical_engine_tests
     tests/anatomical_engine_tests.cpp
     src/biofeedback/anatomical_engine.cpp
+    src/biofeedback/anatomical_live.cpp
+    src/biofeedback/biofeedback_engine.cpp
 )
 target_include_directories(anatomical_engine_tests PRIVATE src)
 add_test(NAME anatomical_engine_tests COMMAND anatomical_engine_tests)

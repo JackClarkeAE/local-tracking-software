@@ -133,7 +133,8 @@ float BiofeedbackDevView::yawToSee(const bf::Vec3& dataDir) const {
 
 QMatrix4x4 BiofeedbackDevView::viewMatrix() const {
     const BfOrbitCamera& c = *camera_;
-    const QVector3D target = modelMatrix().map(c.target) + c.pan;
+    const QVector3D offset(scene_.targetOffset.x, scene_.targetOffset.y, scene_.targetOffset.z);
+    const QVector3D target = modelMatrix().map(c.target + offset) + c.pan;
     const float yaw = qDegreesToRadians(c.yaw), pitch = qDegreesToRadians(c.pitch);
     QVector3D up, fwd, right;
     orbitBasis(up, fwd, right);
@@ -183,7 +184,7 @@ void BiofeedbackDevView::paintGL() {
         glEnable(GL_POINT_SMOOTH);
         glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
 
-        drawFloor(camera_->target);
+        drawFloor(camera_->target + QVector3D(scene_.targetOffset.x, scene_.targetOffset.y, scene_.targetOffset.z));
         if (scene_.ghost) drawBody(*scene_.ghost, true);
         drawBody(*scene_.body, false);
         if (scene_.showAxes && scene_.axes.valid) drawAxes();

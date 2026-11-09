@@ -113,6 +113,13 @@ struct Settings {
     float maxVerticalSpeed = 0.5f;  // m/s
     bool pelvisDrop = true;      // step mode: lower the body when a step is out of reach
     float maxPelvisDrop = 0.15f; // metres
+    // Overground walking (needs a TemporalState): keep the stance foot fixed
+    // in the world by moving the whole avatar horizontally. Without it a
+    // scaled stance leg slides backward along the floor; with it the avatar
+    // travels further than the person, which is what a longer step looks like.
+    // Leave off on a treadmill, where the real stance foot moves with the belt.
+    bool plantStanceFoot = false;
+    float rootRecenterSpeed = 0.25f;  // m/s the avatar drifts back to the person while they stand still
     float minConfidence = 0.1f;
 };
 
@@ -122,14 +129,22 @@ struct LimbDiagnostics {
     std::array<float, 3> target{};   // radians — hip, knee, ankle the settings ask for
     float targetStepAP = 0.0f;       // metres
     float lateralShift = 0.0f;       // metres — change of ankle ML offset from the hip (out - in)
+    // metres — movement out of each joint's OWN flexion plane, summed down
+    // the leg (thigh vs pelvis, shank vs thigh, foot vs shank). A pure
+    // flexion change scores 0 even when an abducted thigh tilts the knee's
+    // plane and so moves the ankle sideways; the old three-point rotation,
+    // which swings limbs out of their planes, does not.
+    float offPlane = 0.0f;
     float boneLengthError = 0.0f;    // metres — largest |change| of thigh / shank / foot length
 };
 
 struct BodyDiagnostics {
     bool valid = false;
     std::array<LimbDiagnostics, 2> limbs{};
-    float groundShift = 0.0f;   // metres applied along world Y by ground contact
+    float groundShift = 0.0f;   // metres applied along the floor normal by ground contact
     float pelvisDrop = 0.0f;    // metres the body was lowered for step mode
+    bf::Vec3 rootOffset;        // horizontal shift applied to plant the stance foot
+    int stanceSide = -1;        // Side planted this frame, -1 none
 };
 
 BodyAxes computeAxes(const TrackedBody& body, const Settings& settings);
@@ -160,6 +175,19 @@ struct FloorPlane {
     float tiltDeg = 0.0f;  // angle between `up` and camera Y
 };
 FloorPlane estimateFloor(const std::vector<const TrackedBody*>& bodies, float minConfidence = 0.1f);
+// Same, from per-frame lowest foot points (see lowestFootPoint)
+FloorPlane estimateFloorFromPoints(const std::vector<bf::Vec3>& lowestPoints);
+// Lowest tracked ankle / foot point of a body (by camera Y)
+bool lowestFootPoint(const TrackedBody& body, bf::Vec3& out, float minConfidence = 0.1f);
+
+// Exchange every left joint with its right counterpart. Body trackers that
+// assume the subject faces the camera (Azure Kinect) label the subject's
+// right side "left" when they turn their back; this undoes that.
+void swapLeftRight(TrackedBody& body);
+
+// Foot-direction evidence for the forward axis in one body: sum over the
+// tracked feet of cos(angle between the foot and ml x up); `used` = feet counted.
+double forwardVote(const TrackedBody& body, int& used, float minConfidence = 0.1f);
 
 // Neutral pose from a body (e.g. a quiet-standing frame). Limbs that are not
 // tracked keep their previous neutral.
@@ -174,7 +202,17 @@ struct TemporalState {
     double time = 0.0;
     float pelvisDrop = 0.0f;
     float groundShift = 0.0f;
-    void reset() { valid = false; }
+    // stance-foot planting
+    bf::Vec3 rootOffset;
+    bool plantValid = false;
+    int stanceSide = -1;
+    bf::Vec3 plantPoint;
+    bool havePelvis = false;
+    bf::Vec3 lastPelvis;
+    float stillTime = 0.0f;
+    bf::Vec3 lastFoot[2];
+    bool lastFootValid[2] = {false, false};
+    void reset() { *this = TemporalState{}; }
 };
 
 // Apply the settings. `diag` (optional) receives anatomical measurements of
