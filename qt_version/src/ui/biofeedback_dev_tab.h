@@ -19,6 +19,7 @@
 #include <QElapsedTimer>
 #include <QString>
 #include <QWidget>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -46,7 +47,9 @@ public:
     ~BiofeedbackDevTab() override;
 
     bool loadSession(const QString& path);
-    bool loadRecordedAvatar(const QString& path, double offsetGuess = -1.0);
+    // offsetGuess: raw time = avatar time + offset; NaN = search the whole session
+    bool loadRecordedAvatar(const QString& path,
+                            double offsetGuess = std::numeric_limits<double>::quiet_NaN());
 
     // Programmatic control (also used by UI)
     void setSettings(const anat::Settings& settings);
@@ -55,6 +58,15 @@ public:
     void setSelectedLimb(int side);
     void seekToTime(double seconds);
     void setCameraPreset(const QString& preset);  // "front", "left", "right", "top"
+    void recomputeNow();                          // skip the debounce (scripting / tests)
+
+    // A companion file (_flags, _biofeedback_avatar, _biofeedback_angles,
+    // _metadata) picked in the dialog resolves to its joint recording
+    static QString resolveSessionPath(const QString& picked);
+
+protected:
+    void keyPressEvent(QKeyEvent* e) override;
+    void hideEvent(QHideEvent* e) override;
 
 private:
     struct GainRow {
@@ -78,6 +90,8 @@ private:
     void syncLimbList();
     void syncEngineCombo();
     void updateForwardSign();
+    anat::Settings settingsAt(int frame) const;  // per-frame forward sign, temporal limit
+    void applyFloorMode();
     void autoDetectRecordedAvatar();
     double alignRecordedAvatar(double guess, double* matchErrorMm);
     const TrackedBody* recordedBodyAt(double rawTime) const;
@@ -101,8 +115,16 @@ private:
     std::vector<char> outputMissing_;   // recorded avatar has no frame here
     std::vector<anat::BodyDiagnostics> diag_;
     bool planar_ = false;
-    bool hasFloor_ = false;
-    float floorY_ = 0.0f;
+    anat::FloorPlane floor_;            // in use (fitted, or level per the Floor control)
+    anat::FloorPlane floorFitted_;
+    anat::FloorPlane floorLevel_;       // camera Y, at the lowest contact height
+    int floorMode_ = 0;                 // 0 auto (fitted), 1 camera Y
+    std::vector<int> frameForward_;     // per-frame forward sign (2D data can turn around)
+    bool facingFlips3D_ = false;        // 3D data whose facing seems to flip (tracker L/R swaps)
+    int gapsFilled_ = 0;
+    int bodySwitches_ = 0;              // frames where the subject's tracking id changed
+    bf::Vec3 lastTarget_;
+    bool haveLastTarget_ = false;
     bf::Vec3 sessionCentre_;
     bf::Vec3 sessionAnt_{0, 0, -1}, sessionMl_{-1, 0, 0};
     int detectedForward_ = 0;
@@ -120,6 +142,8 @@ private:
     Engine engine_ = Engine::Anatomical;
     int forwardMode_ = 0;          // 0 auto, 1 normal, 2 flipped
     float smoothing_ = 0.0f;
+    bool fillGaps_ = true;
+    bool smoothVertical_ = true;
     int selectedLimb_ = 0;
 
     // Playback
@@ -156,6 +180,7 @@ private:
     QLabel* timecodeLabel_ = nullptr;
     QLabel* durationLabel_ = nullptr;
     QLabel* frameLabel_ = nullptr;
+    QWidget* transport_ = nullptr;
 
     QListWidget* limbList_ = nullptr;
     QLabel* inspectorTitle_ = nullptr;
@@ -168,12 +193,15 @@ private:
     QLabel* avatarStatus_ = nullptr;
     QDoubleSpinBox* smoothingSpin_ = nullptr;
     QCheckBox* groundCb_ = nullptr;
+    QCheckBox* fillGapsCb_ = nullptr;
+    QCheckBox* smoothVerticalCb_ = nullptr;
     QCheckBox* pelvisDropCb_ = nullptr;
     QComboBox* hipRefCombo_ = nullptr;
     QComboBox* forwardCombo_ = nullptr;
-    QCheckBox* ghostCb_ = nullptr;
-    QCheckBox* axesCb_ = nullptr;
-    QCheckBox* labelsCb_ = nullptr;
+    QComboBox* floorCombo_ = nullptr;
+    QToolButton* ghostBtn_ = nullptr;
+    QToolButton* axesBtn_ = nullptr;
+    QToolButton* labelsBtn_ = nullptr;
 
     QLabel* readout_ = nullptr;
 };

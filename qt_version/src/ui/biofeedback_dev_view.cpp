@@ -113,13 +113,33 @@ QMatrix4x4 BiofeedbackDevView::modelMatrix() const {
     return m;
 }
 
+// Orthonormal display-space basis the orbit is defined in: `up` is the
+// floor normal (camera Y unless the camera was tilted), fwd/right span the floor.
+void BiofeedbackDevView::orbitBasis(QVector3D& up, QVector3D& fwd, QVector3D& right) const {
+    up = toDisplay(bf::Vec3(camera_->up.x(), camera_->up.y(), camera_->up.z())).normalized();
+    if (up.isNull()) up = QVector3D(0, 1, 0);
+    fwd = QVector3D(0, 0, 1) - up * QVector3D::dotProduct(QVector3D(0, 0, 1), up);
+    if (fwd.lengthSquared() < 1e-6f) fwd = QVector3D(1, 0, 0) - up * QVector3D::dotProduct(QVector3D(1, 0, 0), up);
+    fwd.normalize();
+    right = QVector3D::crossProduct(up, fwd);  // = +X when up = Y, fwd = Z
+}
+
+float BiofeedbackDevView::yawToSee(const bf::Vec3& dataDir) const {
+    QVector3D up, fwd, right;
+    orbitBasis(up, fwd, right);
+    const QVector3D d = toDisplay(dataDir);
+    return qRadiansToDegrees(std::atan2(QVector3D::dotProduct(d, right), QVector3D::dotProduct(d, fwd)));
+}
+
 QMatrix4x4 BiofeedbackDevView::viewMatrix() const {
     const BfOrbitCamera& c = *camera_;
     const QVector3D target = modelMatrix().map(c.target) + c.pan;
     const float yaw = qDegreesToRadians(c.yaw), pitch = qDegreesToRadians(c.pitch);
-    const QVector3D dir(std::cos(pitch) * std::sin(yaw), std::sin(pitch), std::cos(pitch) * std::cos(yaw));
+    QVector3D up, fwd, right;
+    orbitBasis(up, fwd, right);
+    const QVector3D dir = up * std::sin(pitch) + (fwd * std::cos(yaw) + right * std::sin(yaw)) * std::cos(pitch);
     QMatrix4x4 v;
-    v.lookAt(target + dir * c.distance, target, QVector3D(0, 1, 0));
+    v.lookAt(target + dir * c.distance, target, up);
     return v;
 }
 
@@ -184,24 +204,30 @@ void BiofeedbackDevView::paintGL() {
 
 void BiofeedbackDevView::drawFloor(const QVector3D& target) {
     if (!scene_.hasFloor) return;
-    const float y = scene_.floorY;
+    // Grid on the fitted floor plane (tilted when the camera was pitched),
+    // in data space; snapped to whole metres so it reads as fixed ground
+    // while the camera follows the body.
+    const bf::Vec3 up = bf::normalizeOr(scene_.floorUp, bf::Vec3(0, 1, 0));
+    const bf::Vec3 e1 = bf::normalizeOr(bf::rejectFrom(bf::Vec3(1, 0, 0), up), bf::Vec3(0, 0, 1));
+    const bf::Vec3 e2 = bf::cross(up, e1);
+    const bf::Vec3 t(target.x(), target.y(), target.z());
+    const float s1 = std::round(bf::dot(t, e1)), s2 = std::round(bf::dot(t, e2));
+    const bf::Vec3 centre = up * scene_.floorHeight + e1 * s1 + e2 * s2;
     const float step = 0.25f, extent = 3.0f;
-    // Snap the grid to world metres so it reads as fixed ground while the camera follows
-    const float cx = std::round(target.x() / 1.0f) * 1.0f;
-    const float cz = std::round(target.z() / 1.0f) * 1.0f;
     const float dpr = (float)devicePixelRatioF();
+    auto vtx = [](const bf::Vec3& p) { glVertex3f(p.x, p.y, p.z); };
 
     glDisable(GL_DEPTH_TEST);
     glLineWidth(1.0f * dpr);
     glBegin(GL_LINES);
-    for (float o = -extent; o <= extent + 1e-3f; o += step) {
-        const bool major = std::fabs(std::fmod(std::fabs(o), 1.0f)) < 1e-3f;
-        const float a = major ? 0.20f : 0.08f;
-        glColor4f(0.62f, 0.70f, 0.80f, a);
-        glVertex3f(cx + o, y, cz - extent);
-        glVertex3f(cx + o, y, cz + extent);
-        glVertex3f(cx - extent, y, cz + o);
-        glVertex3f(cx + extent, y, cz + o);
+    for (int k = -12; k <= 12; ++k) {
+        const float o = k * step;
+        const bool major = k % 4 == 0;
+        glColor4f(0.62f, 0.70f, 0.80f, major ? 0.20f : 0.08f);
+        vtx(centre + e1 * o - e2 * extent);
+        vtx(centre + e1 * o + e2 * extent);
+        vtx(centre - e1 * extent + e2 * o);
+        vtx(centre + e1 * extent + e2 * o);
     }
     glEnd();
 }

@@ -39,6 +39,7 @@ QString formatValue(float v, const QString& unit) {
 BiofeedbackTimeline::BiofeedbackTimeline(QWidget* parent) : QWidget(parent) {
     setMinimumHeight(120);
     setMouseTracking(false);
+    setFocusPolicy(Qt::ClickFocus);  // keys then reach the tab (transport shortcuts)
     setAttribute(Qt::WA_OpaquePaintEvent, true);
 }
 
@@ -49,12 +50,12 @@ void BiofeedbackTimeline::setFrameTimes(std::vector<double> times) {
 
 void BiofeedbackTimeline::setFlags(std::vector<PlaybackFlag> flags) {
     flags_ = std::move(flags);
-    update();
+    invalidate();
 }
 
 void BiofeedbackTimeline::setTracks(std::vector<Track> tracks) {
     tracks_ = std::move(tracks);
-    update();
+    invalidate();
 }
 
 double BiofeedbackTimeline::duration() const {
@@ -64,7 +65,7 @@ double BiofeedbackTimeline::duration() const {
 void BiofeedbackTimeline::fitAll() {
     viewStart_ = 0.0;
     viewLength_ = std::max(1.0, duration());
-    update();
+    invalidate();
 }
 
 void BiofeedbackTimeline::setCurrentTime(double t) {
@@ -105,7 +106,25 @@ int BiofeedbackTimeline::frameIndexAt(double t) const {
 }
 
 void BiofeedbackTimeline::paintEvent(QPaintEvent*) {
+    const qreal dpr = devicePixelRatioF();
+    const QSize px = (QSizeF(size()) * dpr).toSize();
+    if (cacheDirty_ || cache_.size() != px || cache_.devicePixelRatio() != dpr ||
+        cacheViewStart_ != viewStart_ || cacheViewLength_ != viewLength_) {
+        cache_ = QPixmap(px);
+        cache_.setDevicePixelRatio(dpr);
+        QPainter cp(&cache_);
+        renderStatic(cp);
+        cacheDirty_ = false;
+        cacheViewStart_ = viewStart_;
+        cacheViewLength_ = viewLength_;
+    }
     QPainter p(this);
+    p.drawPixmap(0, 0, cache_);
+    drawLiveValues(p);
+    drawPlayhead(p);
+}
+
+void BiofeedbackTimeline::renderStatic(QPainter& p) {
     p.fillRect(rect(), kBg);
     p.setRenderHint(QPainter::Antialiasing, false);
 
@@ -155,7 +174,6 @@ void BiofeedbackTimeline::paintEvent(QPaintEvent*) {
     }
 
     // --- Tracks
-    const int frame = frameIndexAt(current_);
     for (int ti = 0; ti < nTracks; ++ti) {
         const Track& track = tracks_[ti];
         const QRectF row(0, trackTop + ti * trackH, width(), trackH);
@@ -190,17 +208,20 @@ void BiofeedbackTimeline::paintEvent(QPaintEvent*) {
             p.drawLine(QPointF(area.left(), yOf(0)), QPointF(area.right(), yOf(0)));
         }
 
-        // Curves: min/max per pixel column so long sessions stay fast and honest
+        // Curves: min/max per pixel column so long sessions stay fast and honest.
+        // Cosmetic pens use Qt's fast line rasteriser; stroking one big
+        // antialiased path per series took seconds on a 20-minute session.
         p.setRenderHint(QPainter::Antialiasing, true);
         p.setClipRect(area.adjusted(0, -2, 0, 2));
         if (hasData && !times_.empty()) {
+            const int cols = (int)area.width();
             for (const Series& s : track.series) {
-                QPen pen(s.color, 1.5);
+                QPen pen(s.color, 1.0);
+                pen.setCosmetic(true);
                 if (s.dashed) pen.setStyle(Qt::DashLine);
                 p.setPen(pen);
-                QPainterPath path;
-                bool penDown = false;
-                const int cols = (int)area.width();
+                std::vector<QPolygonF> runs(1);
+                std::vector<QLineF> spans;  // min..max within a column
                 int idx = i0;
                 for (int c = 0; c <= cols; ++c) {
                     const double tEnd = xToTime(area.left() + c + 1);
@@ -216,19 +237,17 @@ void BiofeedbackTimeline::paintEvent(QPaintEvent*) {
                         ++n;
                     }
                     if (n == 0) {
-                        if (missing) penDown = false;  // untracked frames: break the line
+                        if (missing && !runs.back().isEmpty()) runs.emplace_back();  // untracked: break the line
                         if (idx >= (int)times_.size() || idx >= (int)s.values.size()) break;
                         continue;  // empty column is normal when zoomed in
                     }
                     const double x = area.left() + c;
-                    if (!penDown) { path.moveTo(x, yOf(last)); penDown = true; }
-                    if (mx - mn > 0.0f && yOf(mn) - yOf(mx) > 1.5) {
-                        path.lineTo(x, yOf(mn));
-                        path.lineTo(x, yOf(mx));
-                    }
-                    path.lineTo(x, yOf(last));
+                    if (!s.dashed && yOf(mn) - yOf(mx) > 1.5) spans.emplace_back(x, yOf(mn), x, yOf(mx));
+                    runs.back() << QPointF(x, yOf(last));
                 }
-                p.drawPath(path);
+                for (const QPolygonF& run : runs)
+                    if (run.size() > 1) p.drawPolyline(run);
+                if (!spans.empty()) p.drawLines(spans.data(), (int)spans.size());
             }
         }
         p.setClipping(false);
@@ -239,27 +258,6 @@ void BiofeedbackTimeline::paintEvent(QPaintEvent*) {
         p.setPen(kText);
         p.drawText(QRectF(10, row.top() + 2, kHeaderWidth - 14, 16), Qt::AlignLeft | Qt::AlignVCenter,
                    track.unit.isEmpty() ? track.name : QString("%1 (%2)").arg(track.name, track.unit));
-        // Values at the playhead, one compact "name value" chunk per series
-        p.setFont(small);
-        const double ly = row.top() + 18;
-        if (ly + fmSmall.height() <= row.bottom() + 2) {
-            double lx = 12;
-            for (const Series& s : track.series) {
-                const float v = (frame >= 0 && frame < (int)s.values.size()) ? s.values[frame] : NAN;
-                const QString name = s.name + " ";
-                const QString value = formatValue(v, track.unit);
-                const double need = fmSmall.horizontalAdvance(name) + fmSmall.horizontalAdvance(value) + 8;
-                if (lx + need > kHeaderWidth - 4) break;
-                QColor dim = s.color;
-                dim.setAlpha(150);
-                p.setPen(dim);
-                p.drawText(QPointF(lx, ly + fmSmall.ascent()), name);
-                lx += fmSmall.horizontalAdvance(name);
-                p.setPen(s.color);
-                p.drawText(QPointF(lx, ly + fmSmall.ascent()), value);
-                lx += fmSmall.horizontalAdvance(value) + 8;
-            }
-        }
         if (hasData && area.height() > 24) {
             p.setPen(QColor(100, 112, 128));
             p.drawText(QRectF(area.left() + 4, area.top(), 80, 12), Qt::AlignLeft | Qt::AlignTop,
@@ -289,7 +287,53 @@ void BiofeedbackTimeline::paintEvent(QPaintEvent*) {
         p.drawLine(QPointF(x, 0), QPointF(x, kRulerHeight));
     }
 
-    // --- Playhead
+    // Separator between header and plot
+    p.setPen(QColor(44, 54, 68));
+    p.drawLine(QPointF(kHeaderWidth - 0.5, 0), QPointF(kHeaderWidth - 0.5, height()));
+
+    if (times_.empty()) {
+        p.setFont(label);
+        p.setPen(kMuted);
+        p.drawText(plot, Qt::AlignCenter, "Open a session to see its timeline");
+    }
+}
+
+void BiofeedbackTimeline::drawLiveValues(QPainter& p) {
+    // Values at the playhead, one compact "name value" chunk per series
+    const int nTracks = (int)tracks_.size();
+    if (nTracks == 0 || times_.empty()) return;
+    const double trackH = (height() - kRulerHeight) / (double)nTracks;
+    const int frame = frameIndexAt(current_);
+    QFont small = font();
+    small.setPointSizeF(7.5);
+    p.setFont(small);
+    const QFontMetrics fmSmall(small);
+    for (int ti = 0; ti < nTracks; ++ti) {
+        const Track& track = tracks_[ti];
+        const double rowTop = kRulerHeight + ti * trackH;
+        const double ly = rowTop + 18;
+        if (ly + fmSmall.height() > rowTop + trackH + 2) continue;
+        double lx = 12;
+        for (const Series& s : track.series) {
+            const float v = (frame >= 0 && frame < (int)s.values.size()) ? s.values[frame] : NAN;
+            const QString name = s.name + " ";
+            const QString value = formatValue(v, track.unit);
+            const double need = fmSmall.horizontalAdvance(name) + fmSmall.horizontalAdvance(value) + 8;
+            if (lx + need > kHeaderWidth - 4) break;
+            QColor dim = s.color;
+            dim.setAlpha(150);
+            p.setPen(dim);
+            p.drawText(QPointF(lx, ly + fmSmall.ascent()), name);
+            lx += fmSmall.horizontalAdvance(name);
+            p.setPen(s.color);
+            p.drawText(QPointF(lx, ly + fmSmall.ascent()), value);
+            lx += fmSmall.horizontalAdvance(value) + 8;
+        }
+    }
+}
+
+void BiofeedbackTimeline::drawPlayhead(QPainter& p) {
+    const QRectF plot = plotRect();
     if (!times_.empty()) {
         const double x = timeToX(current_);
         if (x >= plot.left() - 1 && x <= plot.right() + 1) {
@@ -309,15 +353,6 @@ void BiofeedbackTimeline::paintEvent(QPaintEvent*) {
         }
     }
 
-    // Separator between header and plot
-    p.setPen(QColor(44, 54, 68));
-    p.drawLine(QPointF(kHeaderWidth - 0.5, 0), QPointF(kHeaderWidth - 0.5, height()));
-
-    if (times_.empty()) {
-        p.setFont(label);
-        p.setPen(kMuted);
-        p.drawText(plot, Qt::AlignCenter, "Open a session to see its timeline");
-    }
 }
 
 void BiofeedbackTimeline::seekFromX(double x) {
@@ -329,8 +364,9 @@ void BiofeedbackTimeline::seekFromX(double x) {
 }
 
 void BiofeedbackTimeline::mousePressEvent(QMouseEvent* e) {
-    if (e->button() != Qt::LeftButton || e->position().x() < kHeaderWidth) return;
+    if (e->button() != Qt::LeftButton || e->position().x() < kHeaderWidth || times_.empty()) return;
     scrubbing_ = true;
+    emit scrubStarted();
     seekFromX(e->position().x());
 }
 

@@ -132,14 +132,22 @@ def frame_joints(t, args):
     return {j: (p[0], p[1] - low, p[2] + travel) for j, p in out.items()}
 
 
-def to_camera(p, camera, cam_height, distance, start_ant):
+def pitch_camera(x, y, z, tilt_deg, toward_positive_z):
+    """Coordinates seen by a camera pitched down by tilt_deg (rotation about x)."""
+    if not tilt_deg:
+        return (x, y, z)
+    t = math.radians(tilt_deg) * (1.0 if toward_positive_z else -1.0)
+    return (x, y * math.cos(t) + z * math.sin(t), -y * math.sin(t) + z * math.cos(t))
+
+
+def to_camera(p, camera, cam_height, distance, start_ant, tilt=0.0):
     """Anatomical (ml=subject right, up, ant) → camera coordinates."""
     ml, up, ant = p
     y = up - cam_height  # floor is cam_height below the camera
     if camera == "kinect":  # facing camera: subject right = -x, anterior = -z
-        return (-ml, y, distance + start_ant - ant)
+        return pitch_camera(-ml, y, distance + start_ant - ant, tilt, True)
     if camera == "zed":     # facing camera: subject right = -x, anterior = +z
-        return (-ml, y, -(distance + start_ant) + ant)
+        return pitch_camera(-ml, y, -(distance + start_ant) + ant, tilt, False)
     # rgb side view in a normalised image plane, walking toward +x, z = 0
     return (ant * 0.8 - 0.2, y * 0.8 + 0.1, 0.0)
 
@@ -158,6 +166,9 @@ def main():
     ap.add_argument("--noise", type=float, default=0.004, help="tracking jitter SD (m)")
     ap.add_argument("--stand", type=float, default=2.0, help="seconds of quiet standing at the start")
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--tilt", type=float, default=0.0, help="camera pitched down by this many degrees (3D only)")
+    ap.add_argument("--turn-every", type=float, default=0.0,
+                    help="rgb: reverse walking direction every N seconds (subject walks back and forth)")
     args = ap.parse_args()
 
     rng = random.Random(args.seed)
@@ -176,7 +187,10 @@ def main():
             frame_args.amplitude = args.amplitude * min(1.0, walk_t / 1.0)
             joints = frame_joints(walk_t, frame_args)
             for j in range(len(JOINT_NAMES)):
-                p = to_camera(joints[j], args.camera, 0.85, 2.6, start_ant)
+                jp = joints[j]
+                if args.camera == "rgb" and args.turn_every > 0 and int(walk_t / args.turn_every) % 2 == 1:
+                    jp = (-jp[0], jp[1], -jp[2])  # facing the other way in the image
+                p = to_camera(jp, args.camera, 0.85, 2.6, start_ant, args.tilt)
                 if args.camera == "rgb":
                     p = (p[0] + rng.gauss(0, args.noise), p[1] + rng.gauss(0, args.noise), 0.0)
                 else:

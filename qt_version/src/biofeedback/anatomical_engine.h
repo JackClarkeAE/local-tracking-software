@@ -34,7 +34,7 @@ namespace anat {
 enum class Side { Left = 0, Right = 1 };
 enum class LegJoint { Hip = 0, Knee = 1, Ankle = 2 };
 enum class LimbMode { JointAngles = 0, StepLength = 1 };
-enum class HipReference { Pelvis = 0, WorldVertical = 1 };
+enum class HipReference { Pelvis = 0, WorldVertical = 1 };  // see Settings::hipReference
 
 struct LegJointIndices { int hip, knee, ankle, foot; };
 const LegJointIndices& legJoints(Side side);
@@ -77,15 +77,40 @@ struct Neutral {
     float stepAP = 0.0f;                          // metres
 };
 
+// Physiological limits targets are clamped to (radians). A target is never
+// pushed past the measured input, so noisy input outside a range is left as is.
+struct JointRange {
+    float lo, hi;
+};
+constexpr float kDegToRad = 3.14159265358979f / 180.0f;
+constexpr JointRange kHipRange{-40.0f * kDegToRad, 135.0f * kDegToRad};
+constexpr JointRange kKneeRange{-20.0f * kDegToRad, 160.0f * kDegToRad};
+constexpr JointRange kAnkleRange{-60.0f * kDegToRad, 45.0f * kDegToRad};
+
 struct Settings {
     std::array<LimbSettings, 2> limbs{};  // indexed by Side
     std::array<Neutral, 2> neutral{};
-    HipReference hipReference = HipReference::Pelvis;
+    // Hip angle measured against the floor's vertical by default: the pelvis
+    // "up" axis comes from two joints only ~20 cm apart (pelvis -> navel), so
+    // tracking jitter tilts it by degrees per frame (on synthetic gait with
+    // 4 mm jitter: 1.8° RMS hip error vs 0.8° for the floor vertical, and
+    // 23 mm vs 6 mm step-length error).
+    HipReference hipReference = HipReference::WorldVertical;
+    // Unit normal of the floor in camera coordinates. Camera Y unless the
+    // camera is tilted — see estimateFloor(). Used for ground contact, pelvis
+    // drop and the WorldVertical hip reference.
+    bf::Vec3 floorUp{0.0f, 1.0f, 0.0f};
+    bool limitToJointRanges = true;
     // anterior = forwardSign * (ml × up). Depends on the camera's coordinate
     // handedness (Kinect after its Y flip is left-handed, ZED is right-handed)
     // — use detectForwardSign() on a session rather than assuming.
     int forwardSign = 1;
     bool groundContact = true;   // keep the lowest foot point at its original height
+    // With a TemporalState, the vertical corrections (pelvis drop, ground
+    // shift) may change by at most this speed between frames, so the avatar
+    // can't jump vertically when a foot point drops out of tracking or a
+    // near-straight leg makes the required drop spike. 0 = unlimited.
+    float maxVerticalSpeed = 0.5f;  // m/s
     bool pelvisDrop = true;      // step mode: lower the body when a step is out of reach
     float maxPelvisDrop = 0.15f; // metres
     float minConfidence = 0.1f;
@@ -115,13 +140,58 @@ LegMeasure measureLeg(const TrackedBody& body, Side side, const BodyAxes& axes,
 // Returns +1 / -1, or 0 if the feet were never tracked well enough to decide.
 int detectForwardSign(const std::vector<const TrackedBody*>& bodies, float minConfidence = 0.1f);
 
+// Per-frame forward sign, for data whose facing direction can change during a
+// session (2D side view walking back and forth; 3D trackers that swap left and
+// right when the subject turns their back). Foot votes are smoothed over
+// `window` frames; frames without evidence take the nearest decided sign, and
+// `fallback` is used where nothing is known. Null entries are allowed.
+std::vector<int> forwardSignsPerFrame(const std::vector<const TrackedBody*>& bodies, int fallback,
+                                      int window = 31, float minConfidence = 0.1f);
+
+// Floor plane from the lowest foot point of each frame. When the camera is
+// pitched (common for wall/tripod mounts), "up" is not camera Y; using the
+// fitted normal keeps ground contact from favouring whichever foot is nearer
+// the camera. A tilt can only be measured when the subject travelled >= 1.5 m
+// (overground); on a treadmill or standing still camera Y is assumed.
+struct FloorPlane {
+    bool valid = false;
+    bf::Vec3 up{0.0f, 1.0f, 0.0f};
+    float height = 0.0f;   // floor offset along `up` (dot(point, up) on the floor)
+    float tiltDeg = 0.0f;  // angle between `up` and camera Y
+};
+FloorPlane estimateFloor(const std::vector<const TrackedBody*>& bodies, float minConfidence = 0.1f);
+
 // Neutral pose from a body (e.g. a quiet-standing frame). Limbs that are not
 // tracked keep their previous neutral.
 void captureNeutral(const TrackedBody& body, Settings& settings);
 
+// State carried between consecutive frames of one body (optional). Pass the
+// same object for every frame, in order, with the frame's time; it resets
+// itself on a time gap or a different body.
+struct TemporalState {
+    bool valid = false;
+    uint32_t bodyId = 0;
+    double time = 0.0;
+    float pelvisDrop = 0.0f;
+    float groundShift = 0.0f;
+    void reset() { valid = false; }
+};
+
 // Apply the settings. `diag` (optional) receives anatomical measurements of
-// input vs output for both legs.
-TrackedBody apply(const TrackedBody& in, const Settings& settings, BodyDiagnostics* diag = nullptr);
+// input vs output for both legs. `state` (optional) enables the temporal
+// limits described at Settings::maxVerticalSpeed; `time` is in seconds.
+TrackedBody apply(const TrackedBody& in, const Settings& settings, BodyDiagnostics* diag = nullptr,
+                  TemporalState* state = nullptr, double time = 0.0);
+
+// Fill short tracking dropouts by linear interpolation between the frames on
+// either side (offline: needs the future frame). A dropout that isn't filled
+// makes that frame's leg unmeasurable — it snaps back to the unmodified pose —
+// and changes which foot point is lowest, so the avatar visibly jumps.
+// Filled joints get confidence `filledConfidence`. Returns the number of
+// joint samples filled. Null frames (subject absent) break gaps.
+int fillTrackingGaps(std::vector<TrackedBody*>& frames, const std::vector<double>& times,
+                     double maxGapSeconds = 0.25, float minConfidence = 0.1f,
+                     float filledConfidence = 0.34f);
 
 // Measure any modified body (e.g. the legacy engine's output) against its
 // input with the same anatomical definitions, so engines can be compared.

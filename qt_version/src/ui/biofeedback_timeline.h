@@ -6,9 +6,12 @@
 #include "../recording/playback.h"
 
 #include <QColor>
+#include <QPixmap>
 #include <QString>
 #include <QWidget>
 #include <vector>
+
+class QPainter;
 
 class BiofeedbackTimeline : public QWidget {
     Q_OBJECT
@@ -37,6 +40,7 @@ public:
 
 signals:
     void seekRequested(double seconds);
+    void scrubStarted();
 
 protected:
     void paintEvent(QPaintEvent* e) override;
@@ -54,6 +58,10 @@ private:
     void clampView();
     void seekFromX(double x);
     int frameIndexAt(double t) const;
+    void renderStatic(QPainter& p);   // everything except the playhead and live values
+    void drawLiveValues(QPainter& p);
+    void drawPlayhead(QPainter& p);
+    void invalidate() { cacheDirty_ = true; update(); }
 
     std::vector<double> times_;
     std::vector<PlaybackFlag> flags_;
@@ -62,4 +70,11 @@ private:
     double viewStart_ = 0.0;
     double viewLength_ = 10.0;
     bool scrubbing_ = false;
+
+    // The curves are rendered once into a pixmap and reused while only the
+    // playhead moves; redrawing tens of thousands of samples (dashed lines in
+    // particular) on every frame made long sessions stutter.
+    QPixmap cache_;
+    bool cacheDirty_ = true;
+    double cacheViewStart_ = -1.0, cacheViewLength_ = -1.0;
 };

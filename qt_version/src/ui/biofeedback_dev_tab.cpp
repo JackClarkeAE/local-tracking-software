@@ -20,7 +20,9 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QRegularExpression>
-#include <QShortcut>
+#include <QAbstractButton>
+#include <QKeyEvent>
+#include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QSplitter>
@@ -36,7 +38,9 @@
 #include <QtMath>
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <map>
 #include <tuple>
@@ -68,12 +72,20 @@ QString fmtDuration(double t) {
 
 QString fmtDeg(float rad) {
     if (!std::isfinite(rad)) return "—";
-    return QString::number(rad * kRadToDeg, 'f', 1) + "°";
+    float d = rad * kRadToDeg;
+    if (std::fabs(d) < 0.05f) d = 0.0f;  // no "-0.0°"
+    return QString::number(d, 'f', 1) + "°";
 }
 
 QString fmtMm(float m) {
     if (!std::isfinite(m)) return "—";
-    return QString::number(m * 1000.0f, 'f', 0) + " mm";
+    float mm = m * 1000.0f;
+    if (std::fabs(mm) < 0.5f) mm = 0.0f;  // no "-0 mm"
+    return QString::number(mm, 'f', 0) + " mm";
+}
+
+bool finitePos(const Joint& j) {
+    return std::isfinite(j.x) && std::isfinite(j.y) && std::isfinite(j.z);
 }
 
 QString errorColor(float metres) {
@@ -221,15 +233,23 @@ BiofeedbackDevTab::BiofeedbackDevTab(AppController* ctrl, QWidget* parent)
     timeLayout->setSpacing(4);
     timeLayout->addWidget(buildTransport());
     timeline_ = new BiofeedbackTimeline;
+    timeline_->setToolTip("Click or drag to scrub · wheel to zoom · Shift+wheel to scroll · "
+                          "double-click the ruler to fit the whole session");
     connect(timeline_, &BiofeedbackTimeline::seekRequested, this, [this](double t) {
         playTime_ = t;
         setCurrentFrame(frameIndexAt(t));
     });
+    connect(timeline_, &BiofeedbackTimeline::scrubStarted, this, [this] { setPlaying(false); });
     timeLayout->addWidget(timeline_, 1);
     vsplit->addWidget(timeFrame);
 
-    // --- Development controls
-    vsplit->addWidget(buildControls());
+    // --- Development controls (scrolls when the window is small)
+    auto* controlsScroll = new QScrollArea;
+    controlsScroll->setWidgetResizable(true);
+    controlsScroll->setFrameShape(QFrame::NoFrame);
+    controlsScroll->setWidget(buildControls());
+    controlsScroll->setMinimumHeight(140);
+    vsplit->addWidget(controlsScroll);
 
     vsplit->setStretchFactor(0, 5);
     vsplit->setStretchFactor(1, 3);
@@ -248,18 +268,12 @@ BiofeedbackDevTab::BiofeedbackDevTab(AppController* ctrl, QWidget* parent)
     recomputeTimer_->setInterval(30);
     connect(recomputeTimer_, &QTimer::timeout, this, &BiofeedbackDevTab::recompute);
 
-    auto shortcut = [this](QKeySequence key, auto fn) {
-        auto* s = new QShortcut(key, this);
-        s->setContext(Qt::WidgetWithChildrenShortcut);
-        connect(s, &QShortcut::activated, this, fn);
-    };
-    shortcut(QKeySequence(Qt::Key_Space), [this] { setPlaying(!playing_); });
-    shortcut(QKeySequence(Qt::Key_Left), [this] { stepFrames(-1); });
-    shortcut(QKeySequence(Qt::Key_Right), [this] { stepFrames(1); });
-    shortcut(QKeySequence(Qt::SHIFT | Qt::Key_Left), [this] { stepFrames(-10); });
-    shortcut(QKeySequence(Qt::SHIFT | Qt::Key_Right), [this] { stepFrames(10); });
-    shortcut(QKeySequence(Qt::Key_Home), [this] { setCurrentFrame(0); });
-    shortcut(QKeySequence(Qt::Key_End), [this] { setCurrentFrame((int)times_.size() - 1); });
+    // Transport keys are handled in keyPressEvent, so a focused slider or spin
+    // box keeps its own arrow keys. Buttons don't take focus, so Space can't
+    // re-click the last button pressed (e.g. "Neutral = this frame").
+    setFocusPolicy(Qt::ClickFocus);
+    for (auto* btn : findChildren<QAbstractButton*>()) btn->setFocusPolicy(Qt::NoFocus);
+    transport_->setEnabled(false);
 
     syncLimbList();
     syncInspector();
@@ -294,6 +308,7 @@ QWidget* BiofeedbackDevTab::buildToolbar() {
     l->addWidget(openBtn);
 
     sessionLabel_ = new QLabel("No session loaded");
+    sessionLabel_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);  // elide, don't push
     sessionLabel_->setProperty("muted", true);
     sessionLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     l->addWidget(sessionLabel_, 1);
@@ -390,12 +405,20 @@ QWidget* BiofeedbackDevTab::buildTransport() {
     l->addWidget(frameLabel_);
     l->addStretch();
 
-    auto* hint = new QLabel("Timeline: click/drag to scrub · wheel to zoom · Shift+wheel to scroll · double-click ruler to fit");
-    hint->setProperty("muted", true);
-    QFont hf = hint->font();
-    hf.setPointSizeF(7.5);
-    hint->setFont(hf);
-    l->addWidget(hint);
+    // View toggles live here, beside the viewports they affect
+    ghostBtn_ = toolButton("Ghost", "Draw the original skeleton faintly behind the modified one", true);
+    axesBtn_ = toolButton("Axes", "Show the anatomical axes the engine uses (R = subject's right, ANT = forward)", true);
+    labelsBtn_ = toolButton("Labels", "Show the selected leg's joint angles on the skeletons", true);
+    ghostBtn_->setChecked(showGhost_);
+    axesBtn_->setChecked(showAxes_);
+    labelsBtn_->setChecked(showLabels_);
+    connect(ghostBtn_, &QToolButton::toggled, this, [this](bool on) { showGhost_ = on; refreshFrame(); });
+    connect(axesBtn_, &QToolButton::toggled, this, [this](bool on) { showAxes_ = on; refreshFrame(); });
+    connect(labelsBtn_, &QToolButton::toggled, this, [this](bool on) { showLabels_ = on; refreshFrame(); });
+    l->addWidget(ghostBtn_);
+    l->addWidget(axesBtn_);
+    l->addWidget(labelsBtn_);
+    transport_ = w;
     return w;
 }
 
@@ -408,12 +431,13 @@ BiofeedbackDevTab::GainRow BiofeedbackDevTab::makeGainRow(const QString& label, 
     l->setSpacing(6);
     auto* name = new QLabel(label);
     name->setToolTip(tip);
-    name->setMinimumWidth(118);
+    name->setMinimumWidth(104);
     l->addWidget(name);
     r.slider = new QSlider(Qt::Horizontal);
     r.slider->setRange(0, 300);
     r.slider->setPageStep(10);
     r.slider->setToolTip(tip);
+    r.slider->setMinimumWidth(90);
     l->addWidget(r.slider, 1);
     r.spin = new QDoubleSpinBox;
     r.spin->setRange(0.0, 3.0);
@@ -473,7 +497,7 @@ QWidget* BiofeedbackDevTab::buildControls() {
     // --- Limbs (like tracks in an editor)
     auto* limbs = column("Limbs", 2);
     limbList_ = new QListWidget;
-    limbList_->setMinimumWidth(190);
+    limbList_->setMinimumWidth(150);
     limbList_->setMaximumHeight(110);
     for (int s = 0; s < 2; ++s) {
         auto* item = new QListWidgetItem;
@@ -622,16 +646,20 @@ QWidget* BiofeedbackDevTab::buildControls() {
     connect(smoothingSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double v) {
         smoothing_ = (float)v;
         rebuildInput();
+        updateForwardSign();
         scheduleRecompute();
     });
     grid->addWidget(smoothingSpin_, 0, 1);
 
     grid->addWidget(new QLabel("Hip reference:"), 1, 0);
     hipRefCombo_ = new QComboBox;
-    hipRefCombo_->addItem("Pelvis (anatomical)");
-    hipRefCombo_->addItem("World vertical");
-    hipRefCombo_->setToolTip("Measure hip flexion against the pelvis (pelvis → spine) or against vertical.\n"
-                             "World vertical ignores trunk lean.");
+    hipRefCombo_->addItem("Pelvis (anatomical, noisier)");
+    hipRefCombo_->addItem("Floor vertical");
+    hipRefCombo_->setCurrentIndex((int)settings_.hipReference);
+    hipRefCombo_->setToolTip("Measure hip flexion against the floor's vertical (default) or the pelvis.\n"
+                             "The pelvis axis comes from two joints ~20 cm apart (pelvis -> navel), so\n"
+                             "tracking jitter tilts it by degrees per frame; the floor vertical is steady\n"
+                             "and ignores trunk lean.");
     connect(hipRefCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int i) {
         settings_.hipReference = (anat::HipReference)i;
         scheduleRecompute();
@@ -651,6 +679,21 @@ QWidget* BiofeedbackDevTab::buildControls() {
         scheduleRecompute();
     });
     grid->addWidget(forwardCombo_, 2, 1);
+
+    grid->addWidget(new QLabel("Floor:"), 3, 0);
+    floorCombo_ = new QComboBox;
+    floorCombo_->addItem("Auto");
+    floorCombo_->addItem("Camera Y (level)");
+    floorCombo_->setToolTip("The floor's vertical, used for ground contact, pelvis drop and the floor\n"
+                            "hip reference. Auto fits a tilted floor when the subject walked >= 1.5 m\n"
+                            "(camera pitched down); on a treadmill it assumes a level camera.");
+    connect(floorCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int i) {
+        floorMode_ = i;
+        applyFloorMode();
+        updateForwardSign();
+        scheduleRecompute();
+    });
+    grid->addWidget(floorCombo_, 3, 1);
     eng->addLayout(grid);
 
     groundCb_ = new QCheckBox("Ground contact (keep lowest foot point at its height)");
@@ -660,6 +703,27 @@ QWidget* BiofeedbackDevTab::buildControls() {
         scheduleRecompute();
     });
     eng->addWidget(groundCb_);
+    fillGapsCb_ = new QCheckBox("Fill tracking gaps up to 0.25 s");
+    fillGapsCb_->setChecked(fillGaps_);
+    fillGapsCb_->setToolTip("Interpolate short dropouts. An unfilled dropout makes that frame's leg\n"
+                            "unmeasurable (it snaps back to the original) and changes which foot point\n"
+                            "is lowest, so the avatar jumps.");
+    connect(fillGapsCb_, &QCheckBox::toggled, this, [this](bool on) {
+        fillGaps_ = on;
+        rebuildInput();
+        updateForwardSign();
+        scheduleRecompute();
+    });
+    eng->addWidget(fillGapsCb_);
+    smoothVerticalCb_ = new QCheckBox("Limit vertical corrections to 0.5 m/s");
+    smoothVerticalCb_->setChecked(smoothVertical_);
+    smoothVerticalCb_->setToolTip("Rate-limit ground shift and pelvis drop between frames so the avatar\n"
+                                  "can't jump vertically when tracking flickers.");
+    connect(smoothVerticalCb_, &QCheckBox::toggled, this, [this](bool on) {
+        smoothVertical_ = on;
+        scheduleRecompute();
+    });
+    eng->addWidget(smoothVerticalCb_);
     pelvisDropCb_ = new QCheckBox("Step mode: lower pelvis when a step is out of reach");
     pelvisDropCb_->setChecked(settings_.pelvisDrop);
     connect(pelvisDropCb_, &QCheckBox::toggled, this, [this](bool on) {
@@ -668,21 +732,6 @@ QWidget* BiofeedbackDevTab::buildControls() {
     });
     eng->addWidget(pelvisDropCb_);
 
-    auto* displayRow = new QHBoxLayout;
-    ghostCb_ = new QCheckBox("Ghost original");
-    ghostCb_->setChecked(showGhost_);
-    axesCb_ = new QCheckBox("Body axes");
-    axesCb_->setChecked(showAxes_);
-    labelsCb_ = new QCheckBox("Angle labels");
-    labelsCb_->setChecked(showLabels_);
-    connect(ghostCb_, &QCheckBox::toggled, this, [this](bool on) { showGhost_ = on; refreshFrame(); });
-    connect(axesCb_, &QCheckBox::toggled, this, [this](bool on) { showAxes_ = on; refreshFrame(); });
-    connect(labelsCb_, &QCheckBox::toggled, this, [this](bool on) { showLabels_ = on; refreshFrame(); });
-    displayRow->addWidget(ghostCb_);
-    displayRow->addWidget(axesCb_);
-    displayRow->addWidget(labelsCb_);
-    displayRow->addStretch();
-    eng->addLayout(displayRow);
     eng->addStretch();
 
     // --- Readout
@@ -691,7 +740,7 @@ QWidget* BiofeedbackDevTab::buildControls() {
     readout_->setTextFormat(Qt::RichText);
     readout_->setAlignment(Qt::AlignTop | Qt::AlignLeft);
     readout_->setWordWrap(true);
-    readout_->setMinimumWidth(240);
+    readout_->setMinimumWidth(200);
     ro->addWidget(readout_, 1);
     return panel;
 }
@@ -700,72 +749,124 @@ QWidget* BiofeedbackDevTab::buildControls() {
 // Session loading
 // =============================================================================
 
-bool BiofeedbackDevTab::loadSession(const QString& path) {
+bool BiofeedbackDevTab::loadSession(const QString& pickedPath) {
     setPlaying(false);
+    const QString path = resolveSessionPath(pickedPath);
     PlaybackManager pm;
     if (!pm.loadCSV(path.toStdString()) || pm.frameCount() == 0) {
-        QMessageBox::warning(this, "Biofeedback Development", "Could not load joint data from:\n" + path);
+        QMessageBox::warning(this, "Biofeedback Development",
+                             "Could not load joint data from:\n" + path +
+                             "\n\nChoose a joint recording (columns time_seconds, body_id, joint_index, ...).");
         return false;
     }
     session_ = std::move(pm);
     sessionPath_ = path;
+    const int n = session_.frameCount();
 
-    // The body seen in the most frames is the subject
+    // The subject is the body seen in the most frames. Trackers issue a new id
+    // when they lose and re-find someone, so where that id is missing follow the
+    // body nearest the subject's last pelvis position; a bystander further away
+    // is ignored.
     std::map<uint32_t, int> counts;
-    for (int i = 0; i < session_.frameCount(); ++i)
+    for (int i = 0; i < n; ++i)
         for (const auto& b : session_.getFrame(i)->bodies) counts[b.id]++;
     primaryBodyId_ = 0;
     int best = -1;
-    for (auto [id, n] : counts)
-        if (n > best) { best = n; primaryBodyId_ = id; }
+    for (auto [id, c] : counts)
+        if (c > best) { best = c; primaryBodyId_ = id; }
 
-    const int n = session_.frameCount();
+    auto pelvisOf = [](const TrackedBody& b, bf::Vec3& out) {
+        const Joint& p = b.joints[(int)CanonicalJoint::PELVIS];
+        if (p.confidence < 0.1f || !finitePos(p)) return false;
+        out = bf::Vec3(p.x, p.y, p.z);
+        return true;
+    };
     times_.assign(n, 0.0);
     raw_.assign(n, TrackedBody{});
     hasBody_.assign(n, 0);
+    bodySwitches_ = 0;
+    bool haveLast = false;
+    bf::Vec3 lastPelvis;
+    uint32_t lastId = primaryBodyId_;
     for (int i = 0; i < n; ++i) {
         const PlaybackFrame* f = session_.getFrame(i);
         times_[i] = f->timeSeconds;
-        for (const auto& b : f->bodies) {
-            if (b.id == primaryBodyId_) { raw_[i] = b; hasBody_[i] = 1; break; }
+        const TrackedBody* chosen = nullptr;
+        for (const auto& b : f->bodies)
+            if (b.id == primaryBodyId_) { chosen = &b; break; }
+        if (!chosen) {
+            float bestDist = 0.6f;
+            for (const auto& b : f->bodies) {
+                bf::Vec3 p;
+                if (!pelvisOf(b, p)) continue;
+                if (!haveLast) {
+                    if (f->bodies.size() == 1) chosen = &b;
+                    continue;
+                }
+                const float d = bf::length(p - lastPelvis);
+                if (d < bestDist) { bestDist = d; chosen = &b; }
+            }
         }
+        if (!chosen) continue;
+        raw_[i] = *chosen;
+        raw_[i].id = primaryBodyId_;  // same person: keep one id so temporal state carries over
+        hasBody_[i] = 1;
+        if (chosen->id != lastId) { ++bodySwitches_; lastId = chosen->id; }
+        bf::Vec3 p;
+        if (pelvisOf(*chosen, p)) { lastPelvis = p; haveLast = true; }
     }
 
-    // Floor (2nd percentile of the lowest foot point), centre, 2D detection
-    std::vector<float> lows;
+    // Centre and 2D detection
     double cx = 0, cy = 0, cz = 0;
-    int centreCount = 0;
-    int planarVotes = 0, bodyCount = 0;
+    int centreCount = 0, planarVotes = 0, bodyCount = 0;
+    std::vector<const TrackedBody*> sample;
+    const int stride = std::max(1, n / 5000);
     for (int i = 0; i < n; ++i) {
         if (!hasBody_[i]) continue;
         const TrackedBody& b = raw_[i];
-        float low = std::numeric_limits<float>::max();
-        for (int j : {20, 21, 24, 25})
-            if (b.joints[j].confidence >= 0.1f) low = std::min(low, b.joints[j].y);
-        if (low < std::numeric_limits<float>::max()) lows.push_back(low);
-        const Joint& pel = b.joints[(int)CanonicalJoint::PELVIS];
-        if (pel.confidence >= 0.1f) { cx += pel.x; cy += pel.y; cz += pel.z; ++centreCount; }
-        bool flat = true;
-        for (const auto& j : b.joints)
-            if (j.confidence >= 0.1f && std::fabs(j.z) > 1e-5f) { flat = false; break; }
-        planarVotes += flat ? 1 : 0;
-        ++bodyCount;
-    }
-    hasFloor_ = !lows.empty();
-    if (hasFloor_) {
-        std::sort(lows.begin(), lows.end());
-        floorY_ = lows[(size_t)(lows.size() * 0.02)];
+        bf::Vec3 p;
+        if (pelvisOf(b, p)) { cx += p.x; cy += p.y; cz += p.z; ++centreCount; }
+        bool flat = true, any = false;
+        for (const auto& j : b.joints) {
+            if (j.confidence < 0.1f || !finitePos(j)) continue;
+            any = true;
+            if (std::fabs(j.z) > 1e-5f) { flat = false; break; }
+        }
+        if (any) {
+            planarVotes += flat ? 1 : 0;
+            ++bodyCount;
+        }
+        if (i % stride == 0) sample.push_back(&b);
     }
     sessionCentre_ = centreCount ? bf::Vec3((float)(cx / centreCount), (float)(cy / centreCount), (float)(cz / centreCount))
                                  : bf::Vec3();
     planar_ = bodyCount > 0 && planarVotes * 2 > bodyCount;
+    haveLastTarget_ = false;
 
-    // Forward axis from where the feet point (sampled)
-    std::vector<const TrackedBody*> sample;
-    const int stride = std::max(1, n / 3000);
-    for (int i = 0; i < n; i += stride)
-        if (hasBody_[i]) sample.push_back(&raw_[i]);
+    // Floor plane (the camera may be pitched) and forward axis from the feet
+    floorFitted_ = anat::estimateFloor(sample);
+    floorLevel_ = anat::FloorPlane{};
+    {
+        std::vector<float> lows;
+        for (const TrackedBody* b : sample) {
+            float low = std::numeric_limits<float>::max();
+            for (int j : {20, 21, 24, 25})
+                if (b->joints[j].confidence >= 0.1f && finitePos(b->joints[j])) low = std::min(low, b->joints[j].y);
+            if (low < std::numeric_limits<float>::max()) lows.push_back(low);
+        }
+        if (!lows.empty()) {
+            std::sort(lows.begin(), lows.end());
+            floorLevel_.valid = true;
+            floorLevel_.height = lows[lows.size() / 50];
+        }
+    }
+    applyFloorMode();
     detectedForward_ = anat::detectForwardSign(sample);
+    forwardMode_ = 0;
+    {
+        QSignalBlocker block(forwardCombo_);
+        forwardCombo_->setCurrentIndex(0);
+    }
 
     settings_.neutral = {};
     avatarLoaded_ = false;
@@ -777,22 +878,24 @@ bool BiofeedbackDevTab::loadSession(const QString& path) {
     // Session info
     const double dur = times_.empty() ? 0.0 : times_.back();
     const double fps = dur > 0 ? (n - 1) / dur : 0.0;
-    sessionLabel_->setText(QString("%1   ·   %2   ·   %3 frames   ·   %4 fps   ·   %5")
-                               .arg(QFileInfo(path).fileName(), fmtDuration(dur))
-                               .arg(n)
-                               .arg(fps, 0, 'f', 1)
-                               .arg(planar_ ? "2D (RGB)" : "3D"));
+    QStringList info{QFileInfo(path).fileName(), fmtDuration(dur), QString("%1 frames").arg(n),
+                     QString("%1 fps").arg(fps, 0, 'f', 1), planar_ ? "2D (RGB)" : "3D"};
+    if (floor_.valid && floor_.tiltDeg >= 3.0f) info << QString("floor tilt %1°").arg(floor_.tiltDeg, 0, 'f', 0);
+    if (gapsFilled_ > 0) info << QString("%1 gaps filled").arg(gapsFilled_);
+    if (bodySwitches_ > 0) info << QString("tracking id changed %1x").arg(bodySwitches_);
+    sessionLabel_->setText(info.join("   ·   "));
     sessionLabel_->setToolTip(path);
-    dataNoteLabel_->setVisible(planar_ || detectedForward_ == 0);
-    if (planar_) {
-        dataNoteLabel_->setText("2D data: angles in the image plane (film side-on)");
-        dataNoteLabel_->setProperty("dsStatusPill", "warning");
-    } else if (detectedForward_ == 0) {
-        dataNoteLabel_->setText("Forward axis not detected — check Engine › Forward axis");
-        dataNoteLabel_->setProperty("dsStatusPill", "warning");
-    }
+
+    QString note;
+    if (planar_) note = "2D data: angles in the image plane (film side-on)";
+    else if (detectedForward_ == 0) note = "Forward axis not detected — check Engine › Forward axis";
+    else if (facingFlips3D_) note = "Facing flips mid-session — tracker may swap left/right";
+    dataNoteLabel_->setVisible(!note.isEmpty());
+    dataNoteLabel_->setText(note);
+    dataNoteLabel_->setProperty("dsStatusPill", "warning");
     WidgetKit::repolish(dataNoteLabel_);
     durationLabel_->setText("/ " + fmtTimecode(dur));
+    transport_->setEnabled(n >= 2);
 
     timeline_->setFrameTimes(times_);
     timeline_->setFlags(session_.flags());
@@ -824,9 +927,9 @@ void BiofeedbackDevTab::autoDetectRecordedAvatar() {
         if (!parseSessionName(f, "_biofeedback_avatar.csv", p, when) || p != prefix) continue;
         const double delta = start.secsTo(when);
         if (delta < -2.0 || delta > dur + 5.0) continue;  // biofeedback started during this recording
-        if (delta < bestDelta) { bestDelta = delta; bestPath = info.absolutePath() + "/" + f; }
+        if (std::fabs(delta) < std::fabs(bestDelta)) { bestDelta = delta; bestPath = info.absolutePath() + "/" + f; }
     }
-    if (!bestPath.isEmpty()) loadRecordedAvatar(bestPath, std::max(0.0, bestDelta));
+    if (!bestPath.isEmpty()) loadRecordedAvatar(bestPath, bestDelta);
 }
 
 bool BiofeedbackDevTab::loadRecordedAvatar(const QString& path, double offsetGuess) {
@@ -840,10 +943,19 @@ bool BiofeedbackDevTab::loadRecordedAvatar(const QString& path, double offsetGue
     avatarLoaded_ = true;
     double errMm = 0.0;
     avatarOffset_ = alignRecordedAvatar(offsetGuess, &errMm);
-    avatarStatus_->setText(QString("%1 — aligned at +%2 s (match %3 mm)")
-                               .arg(QFileInfo(path).fileName())
-                               .arg(avatarOffset_, 0, 'f', 2)
-                               .arg(errMm, 0, 'f', 1));
+    const QString name = QFileInfo(path).fileName();
+    const QString offset = QString("%1%2 s").arg(avatarOffset_ >= 0 ? "+" : "").arg(avatarOffset_, 0, 'f', 2);
+    if (errMm < 0) {
+        avatarStatus_->setText(QString("%1 — could not align: no overlapping upper-body joints").arg(name));
+        avatarStatus_->setStyleSheet("color:#ff6767;");
+    } else if (errMm > 30.0) {
+        avatarStatus_->setText(QString("%1 — best match at %2 is poor (%3 mm): different session or camera?")
+                                   .arg(name, offset).arg(errMm, 0, 'f', 0));
+        avatarStatus_->setStyleSheet("color:#f2b84b;");
+    } else {
+        avatarStatus_->setText(QString("%1 — aligned at %2 (match %3 mm)").arg(name, offset).arg(errMm, 0, 'f', 1));
+        avatarStatus_->setStyleSheet("");
+    }
     avatarStatus_->setToolTip(path);
     syncEngineCombo();
     scheduleRecompute();
@@ -869,7 +981,11 @@ double BiofeedbackDevTab::alignRecordedAvatar(double guess, double* matchErrorMm
         for (const auto& c : f->bodies) if (c.id == primaryBodyId_) b = &c;
         samples.push_back({f->timeSeconds, *b});
     }
-    if (samples.empty()) return std::max(0.0, guess);
+    const bool hasGuess = std::isfinite(guess);
+    if (samples.empty()) {
+        if (matchErrorMm) *matchErrorMm = -1.0;
+        return hasGuess ? guess : 0.0;
+    }
 
     auto errorAt = [&](double offset) {
         double sum = 0.0;
@@ -879,6 +995,7 @@ double BiofeedbackDevTab::alignRecordedAvatar(double guess, double* matchErrorMm
             if (r < 0 || !hasBody_[r] || std::fabs(times_[r] - (s.t + offset)) > 0.1) continue;
             for (int j : refJoints) {
                 if (s.body.joints[j].confidence < 0.1f || raw_[r].joints[j].confidence < 0.1f) continue;
+                if (!finitePos(s.body.joints[j]) || !finitePos(raw_[r].joints[j])) continue;
                 sum += bf::length(jointPos(s.body, j) - jointPos(raw_[r], j));
                 ++count;
             }
@@ -886,12 +1003,13 @@ double BiofeedbackDevTab::alignRecordedAvatar(double guess, double* matchErrorMm
         return count >= 10 ? sum / count : std::numeric_limits<double>::max();
     };
 
-    const double first = samples.front().t;
-    double bestOffset = std::max(0.0, guess), bestErr = std::numeric_limits<double>::max();
+    // candidate offsets put the middle sample on each raw frame in turn, so
+    // biofeedback that started before the recording (negative offset) works too
+    const double anchor = samples[samples.size() / 2].t;
+    double bestOffset = hasGuess ? guess : 0.0, bestErr = std::numeric_limits<double>::max();
     for (size_t r = 0; r < times_.size(); ++r) {
-        const double offset = times_[r] - first;
-        if (offset < -0.5) continue;
-        if (guess >= 0.0 && std::fabs(offset - guess) > 3.0) continue;
+        const double offset = times_[r] - anchor;
+        if (hasGuess && std::fabs(offset - guess) > 3.0) continue;
         const double e = errorAt(offset);
         if (e < bestErr) { bestErr = e; bestOffset = offset; }
     }
@@ -915,6 +1033,13 @@ const TrackedBody* BiofeedbackDevTab::recordedBodyAt(double rawTime) const {
 
 void BiofeedbackDevTab::rebuildInput() {
     input_ = raw_;
+    gapsFilled_ = 0;
+    if (fillGaps_ && !input_.empty()) {
+        std::vector<TrackedBody*> ptrs(input_.size(), nullptr);
+        for (size_t i = 0; i < input_.size(); ++i)
+            if (hasBody_[i]) ptrs[i] = &input_[i];
+        gapsFilled_ = anat::fillTrackingGaps(ptrs, times_, 0.25);
+    }
     const float s = smoothing_;
     if (s <= 0.0f || input_.empty()) return;
     TrackedBody prev;
@@ -925,8 +1050,8 @@ void BiofeedbackDevTab::rebuildInput() {
         if (!havePrev) { prev = b; havePrev = true; continue; }
         for (int j = 0; j < JOINT_COUNT; ++j) {
             Joint& c = b.joints[j];
-            if (c.confidence < 0.1f) continue;
-            if (prev.joints[j].confidence < 0.1f) { prev.joints[j] = c; continue; }
+            if (c.confidence < 0.1f || !finitePos(c)) continue;
+            if (prev.joints[j].confidence < 0.1f || !finitePos(prev.joints[j])) { prev.joints[j] = c; continue; }
             c.x = s * prev.joints[j].x + (1.0f - s) * c.x;
             c.y = s * prev.joints[j].y + (1.0f - s) * c.y;
             c.z = s * prev.joints[j].z + (1.0f - s) * c.z;
@@ -940,9 +1065,39 @@ void BiofeedbackDevTab::updateForwardSign() {
     if (forwardMode_ == 1) sign = 1;
     else if (forwardMode_ == 2) sign = -1;
     settings_.forwardSign = sign;
+
+    // Per-frame signs: 2D data can turn around (walking back and forth past a
+    // side-on camera); in 3D a sustained disagreement means the tracker likely
+    // swapped left/right (subject facing away) and is only reported.
+    const int n = (int)input_.size();
+    std::vector<const TrackedBody*> ptrs(n, nullptr);
+    for (int i = 0; i < n; ++i)
+        if (hasBody_[i]) ptrs[i] = &input_[i];
+    const double dur = times_.empty() ? 0.0 : times_.back();
+    const int window = std::max(9, (int)std::lround(n > 1 && dur > 0 ? (n - 1) / dur : 30.0));  // ~1 s
+    const std::vector<int> perFrame = anat::forwardSignsPerFrame(ptrs, sign, window);
+    int turns = 0;
+    for (int i = 1; i < n; ++i) turns += perFrame[i] != perFrame[i - 1];
+    facingFlips3D_ = false;
+    if (planar_ && forwardMode_ == 0) {
+        frameForward_ = perFrame;
+    } else {
+        frameForward_.assign(n, sign);
+        if (!planar_) {
+            double runStart = -1.0;
+            for (int i = 0; i < n && !facingFlips3D_; ++i) {
+                const bool against = hasBody_[i] && perFrame[i] != sign;
+                if (against && runStart < 0) runStart = times_[i];
+                if (!against) runStart = -1.0;
+                if (runStart >= 0 && times_[i] - runStart >= 2.0) facingFlips3D_ = true;
+            }
+        }
+    }
     if (forwardCombo_) {
-        const QString autoText = detectedForward_ == 0 ? QString("Auto (not detected, using +)")
-                                                       : QString("Auto (detected %1)").arg(detectedForward_ > 0 ? "+" : "-");
+        QString autoText;
+        if (planar_ && turns > 0) autoText = QString("Auto (per frame: subject turns %1x)").arg(turns);
+        else if (detectedForward_ == 0) autoText = "Auto (not detected, using +)";
+        else autoText = QString("Auto (detected %1)").arg(detectedForward_ > 0 ? "+" : "-");
         forwardCombo_->setItemText(0, autoText);
     }
     // Left-handed data (anterior = ml × up, e.g. Kinect after its Y flip) is
@@ -951,18 +1106,43 @@ void BiofeedbackDevTab::updateForwardSign() {
     viewOriginal_->setMirrorZ(mirror);
     viewModified_->setMirrorZ(mirror);
 
-    // Session-average body axes, for the camera presets
+    // Session-average body axes along the floor, for the camera presets
+    const bf::Vec3 up = settings_.floorUp;
     bf::Vec3 ant, ml;
-    const int stride = std::max(1, (int)input_.size() / 500);
-    for (size_t i = 0; i < input_.size(); i += stride) {
+    const int stride = std::max(1, n / 500);
+    for (int i = 0; i < n; i += stride) {
         if (!hasBody_[i]) continue;
-        const anat::BodyAxes ax = anat::computeAxes(input_[i], settings_);
+        const anat::BodyAxes ax = anat::computeAxes(input_[i], settingsAt(i));
         if (!ax.valid) continue;
         ant += ax.ant;
         ml += ax.ml;
     }
-    sessionAnt_ = bf::normalizeOr(bf::Vec3(ant.x, 0, ant.z), bf::Vec3(0, 0, -1));
-    sessionMl_ = bf::normalizeOr(bf::Vec3(ml.x, 0, ml.z), bf::Vec3(-1, 0, 0));
+    sessionAnt_ = bf::normalizeOr(bf::rejectFrom(ant, up), bf::Vec3(0, 0, -1));
+    sessionMl_ = bf::normalizeOr(bf::rejectFrom(ml, up), bf::Vec3(-1, 0, 0));
+}
+
+void BiofeedbackDevTab::applyFloorMode() {
+    floor_ = (floorMode_ == 0 && floorFitted_.valid) ? floorFitted_ : floorLevel_;
+    settings_.floorUp = floor_.valid ? floor_.up : bf::Vec3(0, 1, 0);
+    if (floorCombo_) {
+        QString autoText = "Auto";
+        if (floorFitted_.valid)
+            autoText = floorFitted_.tiltDeg >= 0.5f ? QString("Auto (fitted: %1° tilt)").arg(floorFitted_.tiltDeg, 0, 'f', 1)
+                                                    : QString("Auto (level)");
+        floorCombo_->setItemText(0, autoText);
+    }
+}
+
+anat::Settings BiofeedbackDevTab::settingsAt(int i) const {
+    anat::Settings s = settings_;
+    if (i >= 0 && i < (int)frameForward_.size()) s.forwardSign = frameForward_[i];
+    s.maxVerticalSpeed = smoothVertical_ ? 0.5f : 0.0f;
+    return s;
+}
+
+void BiofeedbackDevTab::recomputeNow() {
+    recomputeTimer_->stop();
+    recompute();
 }
 
 void BiofeedbackDevTab::scheduleRecompute() {
@@ -991,25 +1171,27 @@ void BiofeedbackDevTab::recompute() {
         }
     }
 
+    anat::TemporalState state;  // frames run in order, like a live session
     for (int i = 0; i < n; ++i) {
         if (!hasBody_[i]) { output_[i] = input_[i]; continue; }
+        const anat::Settings fs = settingsAt(i);
         switch (engine_) {
             case Engine::Anatomical:
-                output_[i] = anat::apply(input_[i], settings_, &diag_[i]);
+                output_[i] = anat::apply(input_[i], fs, &diag_[i], &state, times_[i]);
                 break;
             case Engine::Legacy: {
                 FrameData f;
                 f.bodies.push_back(input_[i]);
                 const FrameData o = legacy_.applyTransforms(f, 0.0f);
                 output_[i] = o.bodies.empty() ? input_[i] : o.bodies.front();
-                diag_[i] = anat::compare(input_[i], output_[i], settings_);
+                diag_[i] = anat::compare(input_[i], output_[i], fs);
                 break;
             }
             case Engine::Recorded: {
                 const TrackedBody* rb = recordedBodyAt(times_[i]);
                 if (rb) {
                     output_[i] = *rb;
-                    diag_[i] = anat::compare(input_[i], output_[i], settings_);
+                    diag_[i] = anat::compare(input_[i], output_[i], fs);
                 } else {
                     output_[i] = input_[i];
                     outputMissing_[i] = 1;
@@ -1087,6 +1269,13 @@ void BiofeedbackDevTab::refreshFrame() {
     b.accent = kOutputColor;
     static const char* engineNames[] = {"Anatomical engine (new)", "Current live engine", "Recorded avatar"};
     b.subtitle = engineNames[(int)engine_];
+    if (engine_ == Engine::Legacy) {
+        for (const auto& ls : settings_.limbs)
+            if (ls.enabled && ls.mode == anat::LimbMode::StepLength) {
+                b.subtitle += " · has no step-length mode: step limbs unchanged";
+                break;
+            }
+    }
     a.subtitle = smoothing_ > 0.0f ? QString("Recorded joints · smoothing %1").arg(smoothing_, 0, 'f', 2)
                                    : QString("Recorded joints");
     a.emptyText = b.emptyText = times_.empty() ? "Open a recorded session to begin" : "Subject not tracked in this frame";
@@ -1096,14 +1285,16 @@ void BiofeedbackDevTab::refreshFrame() {
     if (valid) {
         auto inBody = std::make_shared<TrackedBody>(input_[i]);
         a.body = inBody;
-        a.hasFloor = b.hasFloor = hasFloor_;
-        a.floorY = b.floorY = floorY_;
+        a.hasFloor = b.hasFloor = floor_.valid;
+        a.floorUp = b.floorUp = floor_.up;
+        a.floorHeight = b.floorHeight = floor_.height;
         a.showAxes = b.showAxes = showAxes_;
-        a.axes = anat::computeAxes(input_[i], settings_);
+        const anat::Settings fs = settingsAt(i);
+        a.axes = anat::computeAxes(input_[i], fs);
 
         if (i < (int)output_.size() && !outputMissing_[i]) {
             b.body = std::make_shared<TrackedBody>(output_[i]);
-            b.axes = anat::computeAxes(output_[i], settings_);
+            b.axes = anat::computeAxes(output_[i], fs);
             if (showGhost_) b.ghost = inBody;
         } else {
             b.emptyText = "No recorded biofeedback at this time";
@@ -1134,13 +1325,24 @@ void BiofeedbackDevTab::refreshFrame() {
 
         // Camera follows the ORIGINAL pelvis, so both views frame identically
         // and any difference on the right is the engine's doing
+        // (a briefly untracked pelvis keeps the last position instead of jumping)
         bf::Vec3 target = sessionCentre_;
         if (follow_) {
             const Joint& pel = input_[i].joints[(int)CanonicalJoint::PELVIS];
-            if (pel.confidence >= 0.1f) target = jointPos(input_[i], (int)CanonicalJoint::PELVIS);
+            if (pel.confidence >= 0.1f && finitePos(pel)) {
+                target = jointPos(input_[i], (int)CanonicalJoint::PELVIS);
+                lastTarget_ = target;
+                haveLastTarget_ = true;
+            } else if (haveLastTarget_) {
+                target = lastTarget_;
+            }
         }
         camA_->target = QVector3D(target.x, target.y, target.z);
-        if (camB_ != camA_) camB_->target = camA_->target;
+        camA_->up = QVector3D(floor_.up.x, floor_.up.y, floor_.up.z);
+        if (camB_ != camA_) {
+            camB_->target = camA_->target;
+            camB_->up = camA_->up;
+        }
     }
 
     viewOriginal_->setScene(std::move(a));
@@ -1262,8 +1464,10 @@ void BiofeedbackDevTab::syncEngineCombo() {
 
 void BiofeedbackDevTab::setSettings(const anat::Settings& settings) {
     const int fwd = settings_.forwardSign;
+    const bf::Vec3 floorUp = settings_.floorUp;
     settings_ = settings;
-    settings_.forwardSign = fwd;  // forward axis is owned by the Forward axis control
+    settings_.forwardSign = fwd;     // owned by the Forward axis control
+    settings_.floorUp = floorUp;     // fitted from the session
     {
         QSignalBlocker b1(groundCb_), b2(pelvisDropCb_), b3(hipRefCombo_);
         groundCb_->setChecked(settings_.groundContact);
@@ -1291,21 +1495,18 @@ void BiofeedbackDevTab::seekToTime(double seconds) {
 
 void BiofeedbackDevTab::setCameraPreset(const QString& preset) {
     BfOrbitCamera& c = *camA_;
-    auto yawOf = [this](const bf::Vec3& dataDir) {
-        const QVector3D d = viewOriginal_->toDisplay(dataDir);
-        return qRadiansToDegrees(std::atan2(d.x(), d.z()));
-    };
+    c.up = QVector3D(floor_.up.x, floor_.up.y, floor_.up.z);
     c.pan = QVector3D();
     c.distance = 2.9f;
     c.pitch = 10.0f;
     if (planar_) {
         // 2D data lives in the image plane: always look at it from the camera
-        c.yaw = 0.0f;
+        c.yaw = viewOriginal_->yawToSee(bf::Vec3(0, 0, 1));
         c.pitch = preset == "top" ? 82.0f : 4.0f;
-    } else if (preset == "left") c.yaw = yawOf(-sessionMl_);
-    else if (preset == "right") c.yaw = yawOf(sessionMl_);
-    else if (preset == "top") { c.yaw = yawOf(sessionAnt_); c.pitch = 82.0f; c.distance = 3.4f; }
-    else c.yaw = yawOf(sessionAnt_);
+    } else if (preset == "left") c.yaw = viewOriginal_->yawToSee(-sessionMl_);
+    else if (preset == "right") c.yaw = viewOriginal_->yawToSee(sessionMl_);
+    else if (preset == "top") { c.yaw = viewOriginal_->yawToSee(sessionAnt_); c.pitch = 82.0f; c.distance = 3.4f; }
+    else c.yaw = viewOriginal_->yawToSee(sessionAnt_);
     if (camB_ != camA_) *camB_ = c;
     viewOriginal_->refresh();
     viewModified_->refresh();
@@ -1336,7 +1537,7 @@ void BiofeedbackDevTab::stepFrames(int delta) {
 }
 
 void BiofeedbackDevTab::setPlaying(bool playing) {
-    if (times_.empty()) playing = false;
+    if (times_.size() < 2) playing = false;
     playing_ = playing;
     playBtn_->setIcon(transportIcon(playing ? "pause" : "play"));
     if (playing) {
@@ -1363,4 +1564,60 @@ void BiofeedbackDevTab::onTick() {
         cur_ = idx;
         refreshFrame();
     }
+}
+
+// =============================================================================
+// Keyboard / visibility / files
+// =============================================================================
+
+void BiofeedbackDevTab::keyPressEvent(QKeyEvent* e) {
+    // Only reaches here when the focused child didn't use the key, so a focused
+    // slider or spin box keeps its arrows.
+    const bool shift = e->modifiers() & Qt::ShiftModifier;
+    switch (e->key()) {
+        case Qt::Key_Space: setPlaying(!playing_); break;
+        case Qt::Key_Left: stepFrames(shift ? -10 : -1); break;
+        case Qt::Key_Right: stepFrames(shift ? 10 : 1); break;
+        case Qt::Key_Home: setPlaying(false); setCurrentFrame(0); break;
+        case Qt::Key_End: setPlaying(false); setCurrentFrame((int)times_.size() - 1); break;
+        default: QWidget::keyPressEvent(e); return;
+    }
+    e->accept();
+}
+
+void BiofeedbackDevTab::hideEvent(QHideEvent* e) {
+    setPlaying(false);  // don't keep animating behind another tab
+    QWidget::hideEvent(e);
+}
+
+QString BiofeedbackDevTab::resolveSessionPath(const QString& picked) {
+    const QFileInfo fi(picked);
+    const QString name = fi.fileName();
+    const QString dir = fi.absolutePath();
+    static const char* companions[] = {"_flags.csv", "_biofeedback_avatar.csv", "_biofeedback_angles.csv",
+                                       "_metadata.json"};
+    for (const char* sfx : companions) {
+        if (!name.endsWith(sfx)) continue;
+        const QString stem = name.left(name.size() - (int)std::strlen(sfx));
+        if (QFile::exists(dir + "/" + stem + ".csv")) return dir + "/" + stem + ".csv";
+        QString prefix;
+        QDateTime when;
+        if (!parseSessionName(stem + ".csv", ".csv", prefix, when)) break;
+        const QString cam1 = dir + "/" + prefix + "_cam1_" + when.toString("yyyyMMdd_HHmmss") + ".csv";
+        if (QFile::exists(cam1)) return cam1;
+        // Biofeedback files are stamped when biofeedback STARTED: use the
+        // recording with the same prefix that began most recently before it
+        QString bestPath;
+        qint64 bestDelta = LLONG_MAX;
+        for (const QString& f : QDir(dir).entryList({prefix + "_*.csv"}, QDir::Files)) {
+            QString p2;
+            QDateTime w2;
+            if (!parseSessionName(f, ".csv", p2, w2) || p2 != prefix) continue;
+            const qint64 d = w2.secsTo(when);
+            if (d >= -2 && d < bestDelta) { bestDelta = d; bestPath = dir + "/" + f; }
+        }
+        if (!bestPath.isEmpty()) return bestPath;
+        break;
+    }
+    return picked;
 }

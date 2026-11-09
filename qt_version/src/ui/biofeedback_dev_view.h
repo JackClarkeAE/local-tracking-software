@@ -22,6 +22,7 @@ struct BfOrbitCamera {
     float distance = 2.9f;   // metres from the target
     QVector3D pan;           // display-space offset added to the target
     QVector3D target;        // data-space point the camera orbits (pelvis when following)
+    QVector3D up{0, 1, 0};   // data-space vertical the camera orbits around (floor normal)
 };
 
 class BiofeedbackDevViewOverlay;
@@ -40,7 +41,8 @@ public:
         std::shared_ptr<const TrackedBody> ghost;   // drawn faint behind (optional)
         std::array<bool, JOINT_COUNT> highlight{};  // joints whose limb is being modified
         bool hasFloor = false;
-        float floorY = 0.0f;
+        bf::Vec3 floorUp{0.0f, 1.0f, 0.0f};  // data-space floor normal
+        float floorHeight = 0.0f;            // dot(point, floorUp) on the floor
         bool showAxes = false;
         anat::BodyAxes axes;
         std::vector<Label> labels;
@@ -64,6 +66,10 @@ public:
 
     // Data-space direction → display-space (applies the mirror)
     QVector3D toDisplay(const bf::Vec3& v) const;
+
+    // Camera yaw (degrees) that looks along -dataDir, i.e. puts the eye on the
+    // dataDir side of the target, measured around the camera's vertical
+    float yawToSee(const bf::Vec3& dataDir) const;
 
     // Repaint the 3D scene and its text overlay (e.g. after the shared camera moved)
     void refresh();
@@ -90,7 +96,8 @@ private:
     QMatrix4x4 modelMatrix() const;
     bool projectToScreen(const QVector3D& dataPos, QPointF& out) const;
 
-    void drawFloor(const QVector3D& displayTarget);
+    void drawFloor(const QVector3D& dataTarget);
+    void orbitBasis(QVector3D& up, QVector3D& fwd, QVector3D& right) const;
     void drawBody(const TrackedBody& body, bool ghost);
     void drawAxes();
     void drawOverlay(class QPainter& p);
