@@ -135,9 +135,12 @@ jobs:
 
   macos:
     name: macOS
-    # Pinned: macos-latest is migrating to macOS 26, whose SDK removed the AGL
-    # framework that Qt 6.8's OpenGL module still links — linking fails there.
-    runs-on: macos-14
+    # Pinned to macOS 15. GitHub retired the macos-14 image on 2 November 2026
+    # (jobs asking for it are cancelled before they start). macos-latest is
+    # macOS 26, whose SDK removed the AGL framework that Qt 6.8's OpenGL module
+    # still links — linking fails there. Revisit when Qt moves to a version
+    # that no longer links AGL.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
